@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Code Monitor</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <h1 class="logo">
+        <span class="logo-icon">&#9672;</span>
+        AI Code Monitor
+      </h1>
+    </div>
+    <div class="header-right">
+      <span id="connectionStatus" class="status-badge status-disconnected">
+        <span class="status-dot"></span> Disconnected
+      </span>
+      <span id="connectedServices" class="services-badge" title="Connected services"></span>
+      <span id="uptime" class="uptime">--:--:--</span>
+    </div>
+  </header>
+
+  <!-- Summary Cards -->
+  <section class="summary-cards">
+    <div class="card">
+      <div class="card-label">TOKENS IN</div>
+      <div class="card-value" id="tokensIn">0</div>
+      <div class="card-sub" id="tokensInSub">--</div>
+    </div>
+    <div class="card">
+      <div class="card-label">TOKENS OUT</div>
+      <div class="card-value" id="tokensOut">0</div>
+      <div class="card-sub" id="tokensOutSub">--</div>
+    </div>
+    <div class="card accent">
+      <div class="card-label">TOTAL COST</div>
+      <div class="card-value" id="totalCost">$0.00</div>
+      <div class="card-sub" id="costSub">--</div>
+    </div>
+    <div class="card">
+      <div class="card-label">REQUESTS</div>
+      <div class="card-value" id="totalRequests">0</div>
+      <div class="card-sub" id="requestsSub">--</div>
+    </div>
+    <div class="card">
+      <div class="card-label">ERRORS</div>
+      <div class="card-value" id="totalErrors">0</div>
+      <div class="card-sub" id="errorRate">0%</div>
+    </div>
+    <div class="card">
+      <div class="card-label">AVG LATENCY</div>
+      <div class="card-value" id="avgLatency">--</div>
+      <div class="card-sub" id="p99Latency">p99: --</div>
+    </div>
+  </section>
+
+  <!-- Charts Row -->
+  <section class="charts-row">
+    <div class="chart-container">
+      <h3>Token Usage Over Time</h3>
+      <canvas id="tokenChart"></canvas>
+    </div>
+    <div class="chart-container">
+      <h3>Cost Over Time</h3>
+      <canvas id="costChart"></canvas>
+    </div>
+  </section>
+
+  <!-- Breakdown Row -->
+  <section class="breakdown-row">
+    <div class="chart-container">
+      <h3>Requests by Model</h3>
+      <canvas id="modelChart"></canvas>
+      <div id="modelLegend" class="custom-legend"></div>
+    </div>
+    <div class="chart-container">
+      <h3>Requests by Tool</h3>
+      <canvas id="toolChart"></canvas>
+      <div id="toolLegend" class="custom-legend"></div>
+    </div>
+  </section>
+
+  <!-- Live Feed -->
+  <section class="live-feed">
+    <div class="feed-header">
+      <h3>Live Request Feed</h3>
+      <span id="feedCount" class="feed-count">0 events</span>
+    </div>
+    <div class="feed-table-wrapper">
+      <table class="feed-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Model</th>
+            <th>Provider</th>
+            <th>Tool</th>
+            <th>Tokens In</th>
+            <th>Tokens Out</th>
+            <th>Cost</th>
+            <th>Latency</th>
+          </tr>
+        </thead>
+        <tbody id="feedBody">
+          <tr class="empty-row">
+            <td colspan="8">Waiting for data... Configure your AI CLI to send telemetry here.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Logs Panel -->
+  <section class="logs-panel">
+    <div class="logs-header" id="logsToggle">
+      <h3>Logs</h3>
+      <span class="toggle-icon" id="logsToggleIcon">&#9662;</span>
+    </div>
+    <div class="logs-body" id="logsBody" style="display:none;">
+      <div id="logsContent" class="logs-content">
+        <div class="empty-logs">No logs received yet.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <span>ai-code-monitor v1.0.0</span>
+    <span>OTLP Receiver: <code id="otlpEndpoint">http://localhost:4318</code></span>
+    <a href="https://github.com/bhaveshkumarparmar/ai-code-monitor" target="_blank">GitHub</a>
+  </footer>
+
+  <script src="/js/app.js"></script>
+</body>
+</html>
