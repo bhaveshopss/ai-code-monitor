@@ -445,6 +445,7 @@ export class MetricsStore {
 
   ingestLogs(payload: OtlpLogsPayload) {
     const resourceLogs = payload.resourceLogs ?? [];
+    let hasMetricData = false;
 
     for (const rl of resourceLogs) {
       const resourceAttrs = extractAttributes(rl.resource?.attributes);
@@ -453,19 +454,144 @@ export class MetricsStore {
 
       for (const sl of rl.scopeLogs ?? []) {
         for (const record of sl.logRecords ?? []) {
+          const attrs = extractAttributes(record.attributes);
+          const body = extractValue(record.body);
+          const timestamp = nanosToMs(record.timeUnixNano);
+
           const logEvent: LogEvent = {
-            timestamp: nanosToMs(record.timeUnixNano),
+            timestamp,
             severity: record.severityText ?? `LEVEL_${record.severityNumber ?? 0}`,
-            message: extractValue(record.body),
-            attributes: extractAttributes(record.attributes),
+            message: body,
+            attributes: attrs,
             service: serviceName,
           };
           this.recentLogs.push(logEvent);
+
+          // Extract metrics from Claude Code log records.
+          // Claude Code sends telemetry as logs where the body is the event name
+          // and attributes contain the actual metric data.
+          if (this.extractMetricsFromLog(body, attrs, timestamp, serviceName)) {
+            hasMetricData = true;
+          }
         }
       }
     }
 
     this.emit("new_logs", this.recentLogs.toArray().slice(-10));
+    if (hasMetricData) {
+      this.emit("metric_update", this.getSnapshot());
+    }
+  }
+
+  /**
+   * Extract metrics from log-based telemetry (Claude Code, etc.).
+   * Returns true if metrics were extracted.
+   */
+  private extractMetricsFromLog(
+    body: string,
+    attrs: Record<string, string>,
+    timestamp: number,
+    _serviceName: string,
+  ): boolean {
+    const eventName = body.toLowerCase();
+
+    // Claude Code API request logs contain token counts, cost, and latency
+    if (eventName.includes("api_request") || eventName.includes("api.request") || eventName.includes("llm.request")) {
+      const tokensIn = this.parseNum(attrs["input_tokens"] ?? attrs["gen_ai.usage.input_tokens"] ?? attrs["prompt_tokens"] ?? attrs["tokens.input"]);
+      const tokensOut = this.parseNum(attrs["output_tokens"] ?? attrs["gen_ai.usage.output_tokens"] ?? attrs["completion_tokens"] ?? attrs["tokens.output"]);
+      const cost = this.parseFloat(attrs["cost_usd"] ?? attrs["cost"] ?? attrs["llm.cost"] ?? attrs["gen_ai.cost"]);
+      const latencyMs = this.parseNum(attrs["duration_ms"] ?? attrs["latency_ms"] ?? attrs["duration"] ?? attrs["response_time"]);
+      const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? attrs["llm.model"] ?? "";
+      const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? attrs["llm.provider"] ?? "";
+      const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? "";
+      const isError = (attrs["status"] ?? attrs["error"] ?? "").toLowerCase() === "error" ||
+                      attrs["status_code"] === "error" ||
+                      eventName.includes("error");
+
+      if (tokensIn > 0 || tokensOut > 0 || cost > 0) {
+        this.totalTokensIn += tokensIn;
+        this.totalTokensOut += tokensOut;
+        this.totalCost += cost;
+        this.totalRequests += 1;
+
+        if (tokensIn > 0 || tokensOut > 0) {
+          this.tokenTimeSeries.add(tokensIn + tokensOut);
+        }
+        if (cost > 0) {
+          this.costTimeSeries.add(cost);
+        }
+        this.requestTimeSeries.add(1);
+
+        if (latencyMs > 0) {
+          this.latencyTracker.add(latencyMs);
+        }
+
+        if (isError) {
+          this.totalErrors += 1;
+        }
+
+        this.updateModelMetrics(model, provider, {
+          tokensIn,
+          tokensOut,
+          cost,
+          requests: 1,
+          errors: isError ? 1 : 0,
+        });
+
+        this.recentRequests.push({
+          timestamp: timestamp || Date.now(),
+          model,
+          provider,
+          tool,
+          tokensIn,
+          tokensOut,
+          cost,
+          latencyMs,
+          error: isError,
+        });
+
+        return true;
+      }
+    }
+
+    // Claude Code API error logs
+    if (eventName.includes("api_error") || eventName.includes("api.error")) {
+      this.totalErrors += 1;
+      const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? "";
+      const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "";
+      if (model || provider) {
+        this.updateModelMetrics(model, provider, { errors: 1 });
+      }
+      return true;
+    }
+
+    // Tool execution logs
+    if (eventName.includes("tool_result") || eventName.includes("tool.execution") || eventName.includes("tool_call")) {
+      const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? attrs["name"] ?? "";
+      const durationMs = this.parseNum(attrs["duration_ms"] ?? attrs["duration"] ?? attrs["latency_ms"]);
+
+      if (tool) {
+        const existing = this.toolMetrics.get(tool) ?? { count: 0, totalLatencyMs: 0 };
+        existing.count += 1;
+        existing.totalLatencyMs += durationMs;
+        this.toolMetrics.set(tool, existing);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private parseNum(val: string | undefined): number {
+    if (!val) return 0;
+    const n = parseInt(val, 10);
+    return isNaN(n) ? 0 : n;
+  }
+
+  private parseFloat(val: string | undefined): number {
+    if (!val) return 0;
+    const n = Number(val);
+    return isNaN(n) ? 0 : n;
   }
 
   ingestTraces(payload: OtlpTracesPayload) {
