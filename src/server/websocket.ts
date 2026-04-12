@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from "ws";
-import type { Server } from "http";
+import type { Server, IncomingMessage } from "http";
+import type { Duplex } from "stream";
 import type { MetricsStore } from "../store/metrics-store.js";
 
 function safeSend(ws: WebSocket, message: string) {
@@ -13,7 +14,21 @@ function safeSend(ws: WebSocket, message: string) {
 }
 
 export function createWebSocketServer(server: Server, store: MetricsStore) {
-  const wss = new WebSocketServer({ server, path: "/ws" });
+  // Use noServer mode to fully decouple WS upgrade from Express request handling.
+  // This prevents Express middleware/routes from interfering with the WS handshake.
+  const wss = new WebSocketServer({ noServer: true });
+
+  server.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const pathname = new URL(request.url ?? "/", `http://${request.headers.host}`).pathname;
+
+    if (pathname === "/ws") {
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit("connection", ws, request);
+      });
+    } else {
+      socket.destroy();
+    }
+  });
 
   let clientCount = 0;
 
@@ -28,13 +43,15 @@ export function createWebSocketServer(server: Server, store: MetricsStore) {
       (ws as any).isAlive = true;
     });
 
-    // Send full snapshot on connect
-    const snapshot = store.getSnapshot();
-    safeSend(ws, JSON.stringify({ type: "snapshot", data: snapshot }));
+    // Send full snapshot on connect (small delay to ensure connection is stable)
+    setTimeout(() => {
+      const snapshot = store.getSnapshot();
+      safeSend(ws, JSON.stringify({ type: "snapshot", data: snapshot }));
+    }, 100);
 
-    ws.on("close", () => {
+    ws.on("close", (code, reason) => {
       clientCount--;
-      console.log(`[WS] Client disconnected (${clientCount} total)`);
+      console.log(`[WS] Client disconnected (${clientCount} total) code=${code} reason=${reason?.toString() || ""}`);
     });
 
     ws.on("error", (err) => {
