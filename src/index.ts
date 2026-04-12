@@ -1,6 +1,6 @@
 import { MetricsStore } from "./store/metrics-store.js";
 import { startServers } from "./server/web-server.js";
-import { banner, info, success } from "./utils/logger.js";
+import { banner, info, success, warn } from "./utils/logger.js";
 
 export interface MonitorOptions {
   dashboardPort: number;
@@ -13,31 +13,28 @@ export async function startMonitor(options: MonitorOptions) {
 
   info("Starting AI Code Monitor...");
 
-  const { dashboardServer, otlpServer } = startServers(store, {
+  const { dashboardServer, otlpServer, dashboardPort, otlpPort } = await startServers(store, {
     dashboardPort: options.dashboardPort,
     otlpPort: options.otlpPort,
   });
 
-  // Wait for both servers to be listening
-  await Promise.all([
-    new Promise<void>((resolve) => {
-      dashboardServer.on("listening", resolve);
-    }),
-    new Promise<void>((resolve) => {
-      otlpServer.on("listening", resolve);
-    }),
-  ]);
+  if (dashboardPort !== options.dashboardPort) {
+    warn(`Port ${options.dashboardPort} was in use, dashboard running on ${dashboardPort} instead`);
+  }
+  if (otlpPort !== options.otlpPort) {
+    warn(`Port ${options.otlpPort} was in use, OTLP receiver running on ${otlpPort} instead`);
+  }
 
-  banner(options.dashboardPort, options.otlpPort);
+  banner(dashboardPort, otlpPort);
 
-  success(`Dashboard running at http://localhost:${options.dashboardPort}`);
-  success(`OTLP receiver running at http://localhost:${options.otlpPort}`);
+  success(`Dashboard running at http://localhost:${dashboardPort}`);
+  success(`OTLP receiver running at http://localhost:${otlpPort}`);
 
   // Auto-open browser
   if (options.openBrowser) {
     try {
       const open = (await import("open")).default;
-      await open(`http://localhost:${options.dashboardPort}`);
+      await open(`http://localhost:${dashboardPort}`);
     } catch {
       // Silently ignore if browser can't be opened
     }

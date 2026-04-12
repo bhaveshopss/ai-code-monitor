@@ -1,5 +1,6 @@
 import express from "express";
-import { createServer } from "http";
+import { createServer, type Server } from "http";
+import net from "net";
 import path from "path";
 import { fileURLToPath } from "url";
 import type { MetricsStore } from "../store/metrics-store.js";
@@ -14,7 +15,48 @@ export interface ServerOptions {
   otlpPort: number;
 }
 
-export function startServers(store: MetricsStore, options: ServerOptions) {
+export interface StartedServers {
+  dashboardServer: Server;
+  otlpServer: Server;
+  dashboardPort: number;
+  otlpPort: number;
+}
+
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const server = net.createServer();
+    server.once("error", () => resolve(false));
+    server.once("listening", () => {
+      server.close(() => resolve(true));
+    });
+    server.listen(port);
+  });
+}
+
+async function findFreePort(startPort: number): Promise<number> {
+  let port = startPort;
+  while (port < startPort + 100) {
+    if (await isPortFree(port)) return port;
+    port++;
+  }
+  throw new Error(`No free port found in range ${startPort}-${startPort + 99}`);
+}
+
+function listenAsync(server: Server, port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, () => {
+      server.removeListener("error", reject);
+      resolve();
+    });
+  });
+}
+
+export async function startServers(store: MetricsStore, options: ServerOptions): Promise<StartedServers> {
+  // Find free ports (auto-increment if requested port is busy)
+  const dashboardPort = await findFreePort(options.dashboardPort);
+  const otlpPort = await findFreePort(options.otlpPort);
+
   // --- Dashboard + API server ---
   const dashboardApp = express();
   dashboardApp.use(express.json({ limit: "50mb" }));
@@ -43,8 +85,8 @@ export function startServers(store: MetricsStore, options: ServerOptions) {
 
   dashboardApp.get("/api/config", (_req, res) => {
     res.json({
-      dashboardPort: options.dashboardPort,
-      otlpPort: options.otlpPort,
+      dashboardPort,
+      otlpPort,
       uptimeMs: Date.now(),
     });
   });
@@ -59,9 +101,7 @@ export function startServers(store: MetricsStore, options: ServerOptions) {
   // Attach WebSocket to dashboard server
   createWebSocketServer(dashboardServer, store);
 
-  dashboardServer.listen(options.dashboardPort, () => {
-    // Startup message handled by CLI
-  });
+  await listenAsync(dashboardServer, dashboardPort);
 
   // --- OTLP Receiver server ---
   const otlpApp = express();
@@ -85,10 +125,7 @@ export function startServers(store: MetricsStore, options: ServerOptions) {
   // Handle protobuf → JSON conversion middleware
   otlpApp.use((req, _res, next) => {
     if (req.headers["content-type"] === "application/x-protobuf" && Buffer.isBuffer(req.body)) {
-      // For now, log that we received protobuf but can't decode it
-      // Users should use http/json protocol
       console.warn("[OTLP] Received protobuf payload. For best results, set OTEL_EXPORTER_OTLP_PROTOCOL=http/json");
-      // Try to pass through — some fields may still be parseable
     }
     next();
   });
@@ -98,9 +135,7 @@ export function startServers(store: MetricsStore, options: ServerOptions) {
 
   const otlpServer = createServer(otlpApp);
 
-  otlpServer.listen(options.otlpPort, () => {
-    // Startup message handled by CLI
-  });
+  await listenAsync(otlpServer, otlpPort);
 
-  return { dashboardServer, otlpServer };
+  return { dashboardServer, otlpServer, dashboardPort, otlpPort };
 }

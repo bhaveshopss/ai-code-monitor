@@ -1,6 +1,6 @@
 {
   "name": "ai-code-monitor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Real-time monitoring dashboard for AI coding agents. One command to track tokens, costs, and latency for Claude Code, OpenCode, and more.",
   "bin": {
     "ai-code-monitor": "./dist/bin/cli.js"
@@ -34,7 +34,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/bhaveshkumarparmar/ai-code-monitor"
+    "url": "https://github.com/bhaveshopss/ai-code-monitor"
   },
   "dependencies": {
     "chalk": "^5.3.0",
