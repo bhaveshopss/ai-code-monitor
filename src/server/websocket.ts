@@ -2,6 +2,16 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "http";
 import type { MetricsStore } from "../store/metrics-store.js";
 
+function safeSend(ws: WebSocket, message: string) {
+  try {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(message);
+    }
+  } catch {
+    // Ignore send errors — client will reconnect
+  }
+}
+
 export function createWebSocketServer(server: Server, store: MetricsStore) {
   const wss = new WebSocketServer({ server, path: "/ws" });
 
@@ -11,9 +21,16 @@ export function createWebSocketServer(server: Server, store: MetricsStore) {
     clientCount++;
     console.log(`[WS] Client connected (${clientCount} total)`);
 
+    // Mark client as alive for ping/pong
+    (ws as any).isAlive = true;
+
+    ws.on("pong", () => {
+      (ws as any).isAlive = true;
+    });
+
     // Send full snapshot on connect
     const snapshot = store.getSnapshot();
-    ws.send(JSON.stringify({ type: "snapshot", data: snapshot }));
+    safeSend(ws, JSON.stringify({ type: "snapshot", data: snapshot }));
 
     ws.on("close", () => {
       clientCount--;
@@ -25,13 +42,27 @@ export function createWebSocketServer(server: Server, store: MetricsStore) {
     });
   });
 
+  // Ping/pong keepalive — terminate dead connections every 30s
+  const pingInterval = setInterval(() => {
+    for (const ws of wss.clients) {
+      if ((ws as any).isAlive === false) {
+        ws.terminate();
+        continue;
+      }
+      (ws as any).isAlive = false;
+      ws.ping();
+    }
+  }, 30_000);
+
+  wss.on("close", () => {
+    clearInterval(pingInterval);
+  });
+
   // Listen for store updates and broadcast to all connected clients
   store.onUpdate((type: string, data: unknown) => {
     const message = JSON.stringify({ type, data });
     for (const client of wss.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
+      safeSend(client, message);
     }
   });
 
@@ -41,9 +72,7 @@ export function createWebSocketServer(server: Server, store: MetricsStore) {
     const snapshot = store.getSnapshot();
     const message = JSON.stringify({ type: "snapshot", data: snapshot });
     for (const client of wss.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
+      safeSend(client, message);
     }
   }, 5000);
 

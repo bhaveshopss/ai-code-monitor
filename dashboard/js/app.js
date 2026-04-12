@@ -316,6 +316,9 @@ function updateAll(data) {
 
 // --- WebSocket ---
 
+let wsReconnectDelay = 1000;
+const WS_MAX_RECONNECT_DELAY = 30000;
+
 function connectWebSocket() {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const url = `${protocol}//${location.host}/ws`;
@@ -323,6 +326,7 @@ function connectWebSocket() {
   ws = new WebSocket(url);
 
   ws.onopen = () => {
+    wsReconnectDelay = 1000; // Reset backoff on successful connect
     const badge = document.getElementById("connectionStatus");
     badge.className = "status-badge status-connected";
     clearChildren(badge);
@@ -352,13 +356,14 @@ function connectWebSocket() {
     const dot = createEl("span", "status-dot");
     badge.appendChild(dot);
     badge.appendChild(document.createTextNode(" Disconnected"));
-    console.log("[WS] Disconnected, reconnecting in 3s...");
-    setTimeout(connectWebSocket, 3000);
+    console.log("[WS] Disconnected, reconnecting in " + (wsReconnectDelay / 1000) + "s...");
+    setTimeout(connectWebSocket, wsReconnectDelay);
+    wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_MAX_RECONNECT_DELAY);
   };
 
   ws.onerror = (err) => {
     console.error("[WS] Error:", err);
-    ws.close();
+    // Don't call ws.close() here — the close event fires automatically after error
   };
 }
 
