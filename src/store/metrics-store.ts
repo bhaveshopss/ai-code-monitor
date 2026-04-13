@@ -775,62 +775,67 @@ export class MetricsStore {
           const durationMs = endMs - startMs;
           const attrs = extractAttributes(span.attributes);
 
-          if (durationMs > 0) {
-            this.latencyTracker.add(durationMs);
+          if (durationMs <= 0) continue;
 
-            const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? "";
-            const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "";
-            const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? "";
-            const tokensIn = this.parseNum(
-              attrs["gen_ai.usage.input_tokens"] ?? attrs["input_tokens"] ??
-              attrs["input_token_count"] ?? attrs["prompt_tokens"]
-            );
-            const tokensOut = this.parseNum(
-              attrs["gen_ai.usage.output_tokens"] ?? attrs["output_tokens"] ??
-              attrs["output_token_count"] ?? attrs["completion_tokens"]
-            );
-            const cost = this.parseFloatVal(attrs["llm.cost"] ?? attrs["cost_usd"] ?? attrs["cost"]);
-            const isError = span.status?.code === 2 || attrs["success"] === "false";
+          const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? "";
+          const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "";
+          const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? "";
+          const tokensIn = this.parseNum(
+            attrs["gen_ai.usage.input_tokens"] ?? attrs["input_tokens"] ??
+            attrs["input_token_count"] ?? attrs["prompt_tokens"]
+          );
+          const tokensOut = this.parseNum(
+            attrs["gen_ai.usage.output_tokens"] ?? attrs["output_tokens"] ??
+            attrs["output_token_count"] ?? attrs["completion_tokens"]
+          );
+          const cost = this.parseFloatVal(attrs["llm.cost"] ?? attrs["cost_usd"] ?? attrs["cost"]);
+          const isError = span.status?.code === 2 || attrs["success"] === "false";
 
-            // Track tokens/cost from spans
-            if (tokensIn > 0 || tokensOut > 0) {
-              this.totalTokensIn += tokensIn;
-              this.totalTokensOut += tokensOut;
-              this.tokenTimeSeries.add(tokensIn + tokensOut);
-            }
-            if (cost > 0) {
-              this.totalCost += cost;
-              this.costTimeSeries.add(cost);
-            }
+          // Check if this span has any meaningful AI data.
+          // Skip internal/infrastructure spans that have no model, tokens, tool, or cost.
+          const hasAiData = model || tokensIn > 0 || tokensOut > 0 || cost > 0 || tool;
+          if (!hasAiData) continue;
 
-            this.totalRequests += 1;
-            this.requestTimeSeries.add(1);
+          this.latencyTracker.add(durationMs);
 
-            this.updateModelMetrics(model, provider, {
-              tokensIn, tokensOut, cost, requests: 1, errors: isError ? 1 : 0,
-            });
-            this.updateServiceMetrics(serviceName, {
-              requests: 1, tokens: tokensIn + tokensOut, cost,
-            });
+          // Track tokens/cost from spans
+          if (tokensIn > 0 || tokensOut > 0) {
+            this.totalTokensIn += tokensIn;
+            this.totalTokensOut += tokensOut;
+            this.tokenTimeSeries.add(tokensIn + tokensOut);
+          }
+          if (cost > 0) {
+            this.totalCost += cost;
+            this.costTimeSeries.add(cost);
+          }
 
-            // Track tool spans
-            if (tool) {
-              const existing = this.toolMetrics.get(tool) ?? { count: 0, totalLatencyMs: 0 };
-              existing.count += 1;
-              existing.totalLatencyMs += durationMs;
-              this.toolMetrics.set(tool, existing);
-              this.updateServiceMetrics(serviceName, { tools: 1 });
-            }
+          this.totalRequests += 1;
+          this.requestTimeSeries.add(1);
 
-            this.recentRequests.push({
-              timestamp: startMs,
-              service: serviceName, model, provider, tool, tokensIn, tokensOut, cost,
-              latencyMs: durationMs, error: isError,
-            });
+          this.updateModelMetrics(model, provider, {
+            tokensIn, tokensOut, cost, requests: 1, errors: isError ? 1 : 0,
+          });
+          this.updateServiceMetrics(serviceName, {
+            requests: 1, tokens: tokensIn + tokensOut, cost,
+          });
 
-            if (isError) {
-              this.totalErrors++;
-            }
+          // Track tool spans
+          if (tool) {
+            const existing = this.toolMetrics.get(tool) ?? { count: 0, totalLatencyMs: 0 };
+            existing.count += 1;
+            existing.totalLatencyMs += durationMs;
+            this.toolMetrics.set(tool, existing);
+            this.updateServiceMetrics(serviceName, { tools: 1 });
+          }
+
+          this.recentRequests.push({
+            timestamp: startMs,
+            service: serviceName, model, provider, tool, tokensIn, tokensOut, cost,
+            latencyMs: durationMs, error: isError,
+          });
+
+          if (isError) {
+            this.totalErrors++;
           }
         }
       }
