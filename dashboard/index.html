@@ -90,6 +90,16 @@
     </div>
   </section>
 
+  <!-- Service Breakdown -->
+  <section class="service-breakdown">
+    <div class="service-header">
+      <h3>Activity by Service</h3>
+    </div>
+    <div id="serviceCards" class="service-cards">
+      <div class="empty-services">No services connected yet.</div>
+    </div>
+  </section>
+
   <!-- Live Feed -->
   <section class="live-feed">
     <div class="feed-header">
@@ -101,6 +111,7 @@
         <thead>
           <tr>
             <th>Time</th>
+            <th>Source</th>
             <th>Model</th>
             <th>Provider</th>
             <th>Tool</th>
@@ -112,7 +123,7 @@
         </thead>
         <tbody id="feedBody">
           <tr class="empty-row">
-            <td colspan="8">Waiting for data... Configure your AI CLI to send telemetry here.</td>
+            <td colspan="9">Waiting for data... Configure your AI CLI to send telemetry here.</td>
           </tr>
         </tbody>
       </table>

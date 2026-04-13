@@ -30,6 +30,7 @@ export interface TimeSeriesPoint {
 
 export interface RequestEvent {
   timestamp: number;
+  service: string;
   model: string;
   provider: string;
   tool: string;
@@ -63,6 +64,7 @@ export interface MetricsSnapshot {
   byModel: Record<string, ModelMetrics>;
   byProvider: Record<string, { requests: number; tokens: number; cost: number }>;
   byTool: Record<string, { count: number; avgLatencyMs: number }>;
+  byService: Record<string, { requests: number; tokens: number; cost: number; tools: number }>;
   tokenTimeSeries: TimeSeriesPoint[];
   costTimeSeries: TimeSeriesPoint[];
   requestTimeSeries: TimeSeriesPoint[];
@@ -271,6 +273,7 @@ export class MetricsStore {
   private modelMetrics = new Map<string, ModelMetrics>();
   private providerMetrics = new Map<string, { requests: number; tokens: number; cost: number }>();
   private toolMetrics = new Map<string, { count: number; totalLatencyMs: number }>();
+  private serviceMetrics = new Map<string, { requests: number; tokens: number; cost: number; tools: number }>();
 
   private tokenTimeSeries = new TimeSeries();
   private costTimeSeries = new TimeSeries();
@@ -335,6 +338,7 @@ export class MetricsStore {
         this.totalTokensIn += value;
         this.tokenTimeSeries.add(value);
         this.updateModelMetrics(model, provider, { tokensIn: value });
+        this.updateServiceMetrics(serviceName, { tokens: value });
       }
 
       // Token output
@@ -342,6 +346,7 @@ export class MetricsStore {
         this.totalTokensOut += value;
         this.tokenTimeSeries.add(value);
         this.updateModelMetrics(model, provider, { tokensOut: value });
+        this.updateServiceMetrics(serviceName, { tokens: value });
       }
 
       // Cost
@@ -349,6 +354,7 @@ export class MetricsStore {
         this.totalCost += value;
         this.costTimeSeries.add(value);
         this.updateModelMetrics(model, provider, { cost: value });
+        this.updateServiceMetrics(serviceName, { cost: value });
       }
 
       // Request count (including codex.api_request counter)
@@ -356,9 +362,11 @@ export class MetricsStore {
         this.totalRequests += value;
         this.requestTimeSeries.add(value);
         this.updateModelMetrics(model, provider, { requests: value });
+        this.updateServiceMetrics(serviceName, { requests: value });
 
         this.recentRequests.push({
           timestamp: Date.now(),
+          service: serviceName,
           model,
           provider,
           tool,
@@ -381,6 +389,7 @@ export class MetricsStore {
         const existing = this.toolMetrics.get(tool) ?? { count: 0, totalLatencyMs: 0 };
         existing.count += value;
         this.toolMetrics.set(tool, existing);
+        this.updateServiceMetrics(serviceName, { tools: value });
       }
 
       // Lines of code (OpenCode telemetry plugin)
@@ -413,6 +422,7 @@ export class MetricsStore {
           this.totalRequests += count;
           this.requestTimeSeries.add(count);
           this.updateModelMetrics(model, provider, { requests: count });
+          this.updateServiceMetrics(serviceName, { requests: count });
 
           if (!isSuccess) {
             this.totalErrors += count;
@@ -421,6 +431,7 @@ export class MetricsStore {
 
           this.recentRequests.push({
             timestamp: Date.now(),
+            service: serviceName,
             model,
             provider,
             tool,
@@ -442,6 +453,7 @@ export class MetricsStore {
           existing.count += count;
           existing.totalLatencyMs += isMs ? sum : sum * 1000;
           this.toolMetrics.set(tool, existing);
+          this.updateServiceMetrics(serviceName, { tools: count });
 
           if (!this.toolLatencyTrackers.has(tool)) {
             this.toolLatencyTrackers.set(tool, new LatencyTracker());
@@ -499,6 +511,19 @@ export class MetricsStore {
     }
   }
 
+  private updateServiceMetrics(
+    service: string,
+    delta: Partial<{ requests: number; tokens: number; cost: number; tools: number }>
+  ) {
+    if (!service || service === "unknown") return;
+    const existing = this.serviceMetrics.get(service) ?? { requests: 0, tokens: 0, cost: 0, tools: 0 };
+    existing.requests += delta.requests ?? 0;
+    existing.tokens += delta.tokens ?? 0;
+    existing.cost += delta.cost ?? 0;
+    existing.tools += delta.tools ?? 0;
+    this.serviceMetrics.set(service, existing);
+  }
+
   // =====================================================================
   // OTLP Logs ingestion (Claude Code, Codex logs, gen_ai.* events)
   // =====================================================================
@@ -551,7 +576,7 @@ export class MetricsStore {
     body: string,
     attrs: Record<string, string>,
     timestamp: number,
-    _serviceName: string,
+    serviceName: string,
   ): boolean {
     const eventName = body.toLowerCase();
 
@@ -602,10 +627,13 @@ export class MetricsStore {
         this.updateModelMetrics(model, provider, {
           tokensIn, tokensOut, cost, requests: 1, errors: isError ? 1 : 0,
         });
+        this.updateServiceMetrics(serviceName, {
+          requests: 1, tokens: tokensIn + tokensOut, cost,
+        });
 
         this.recentRequests.push({
           timestamp: timestamp || Date.now(),
-          model, provider, tool, tokensIn, tokensOut, cost, latencyMs, error: isError,
+          service: serviceName, model, provider, tool, tokensIn, tokensOut, cost, latencyMs, error: isError,
         });
 
         return true;
@@ -640,10 +668,13 @@ export class MetricsStore {
             tokensOut: tokensOut + reasoningTokens,
             requests: 1,
           });
+          this.updateServiceMetrics(serviceName, {
+            requests: 1, tokens: tokensIn + tokensOut + cachedTokens + reasoningTokens,
+          });
 
           this.recentRequests.push({
             timestamp: timestamp || Date.now(),
-            model, provider, tool: "", tokensIn: tokensIn + cachedTokens,
+            service: serviceName, model, provider, tool: "", tokensIn: tokensIn + cachedTokens,
             tokensOut: tokensOut + reasoningTokens, cost: 0, latencyMs, error: false,
           });
         } else {
@@ -687,6 +718,7 @@ export class MetricsStore {
         existing.count += 1;
         existing.totalLatencyMs += durationMs;
         this.toolMetrics.set(tool, existing);
+        this.updateServiceMetrics(serviceName, { tools: 1 });
 
         if (!isSuccess) {
           this.totalErrors += 1;
@@ -777,6 +809,9 @@ export class MetricsStore {
             this.updateModelMetrics(model, provider, {
               tokensIn, tokensOut, cost, requests: 1, errors: isError ? 1 : 0,
             });
+            this.updateServiceMetrics(serviceName, {
+              requests: 1, tokens: tokensIn + tokensOut, cost,
+            });
 
             // Track tool spans
             if (tool) {
@@ -784,11 +819,12 @@ export class MetricsStore {
               existing.count += 1;
               existing.totalLatencyMs += durationMs;
               this.toolMetrics.set(tool, existing);
+              this.updateServiceMetrics(serviceName, { tools: 1 });
             }
 
             this.recentRequests.push({
               timestamp: startMs,
-              model, provider, tool, tokensIn, tokensOut, cost,
+              service: serviceName, model, provider, tool, tokensIn, tokensOut, cost,
               latencyMs: durationMs, error: isError,
             });
 
@@ -812,6 +848,9 @@ export class MetricsStore {
       };
     }
 
+    const byService: Record<string, { requests: number; tokens: number; cost: number; tools: number }> =
+      Object.fromEntries(this.serviceMetrics);
+
     return {
       totalTokensIn: this.totalTokensIn,
       totalTokensOut: this.totalTokensOut,
@@ -827,6 +866,7 @@ export class MetricsStore {
       byModel: Object.fromEntries(this.modelMetrics),
       byProvider: Object.fromEntries(this.providerMetrics),
       byTool,
+      byService,
       tokenTimeSeries: this.tokenTimeSeries.toArray(),
       costTimeSeries: this.costTimeSeries.toArray(),
       requestTimeSeries: this.requestTimeSeries.toArray(),

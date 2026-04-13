@@ -5,6 +5,20 @@ const CHART_COLORS = [
   "#f85149", "#39d2c0", "#f778ba", "#79c0ff",
 ];
 
+// Service name → display label and color
+const SERVICE_STYLES = {
+  "claude-code":  { label: "Claude Code", color: "#bc8cff" },
+  "claude_code":  { label: "Claude Code", color: "#bc8cff" },
+  "opencode":     { label: "OpenCode",    color: "#3fb950" },
+  "codex":        { label: "Codex",       color: "#58a6ff" },
+  "codex-cli":    { label: "Codex",       color: "#58a6ff" },
+};
+
+function getServiceStyle(name) {
+  const key = (name || "").toLowerCase().replace(/\s+/g, "-");
+  return SERVICE_STYLES[key] || { label: name || "Unknown", color: "#8b949e" };
+}
+
 // --- State ---
 let ws = null;
 let snapshot = null;
@@ -259,6 +273,17 @@ function updateFeed(requests) {
     if (i === 0) tr.classList.add("new-row");
 
     tr.appendChild(createTd(formatTime(r.timestamp)));
+
+    // Source badge
+    const sourceTd = document.createElement("td");
+    const style = getServiceStyle(r.service);
+    const badge = createEl("span", "service-badge");
+    badge.textContent = style.label;
+    badge.style.borderColor = style.color;
+    badge.style.color = style.color;
+    sourceTd.appendChild(badge);
+    tr.appendChild(sourceTd);
+
     tr.appendChild(createTd(r.model || "--"));
     tr.appendChild(createTd(r.provider || "--"));
     tr.appendChild(createTd(r.tool || "--"));
@@ -291,6 +316,45 @@ function updateLogs(logs) {
   });
 }
 
+function updateServiceCards(byService) {
+  const container = document.getElementById("serviceCards");
+  if (!byService || Object.keys(byService).length === 0) return;
+
+  clearChildren(container);
+
+  const entries = Object.entries(byService).sort((a, b) => b[1].requests - a[1].requests);
+
+  entries.forEach(([name, stats]) => {
+    const style = getServiceStyle(name);
+
+    const card = createEl("div", "service-card");
+    card.style.borderLeftColor = style.color;
+
+    const header = createEl("div", "service-card-header");
+    const dot = createEl("span", "service-dot");
+    dot.style.background = style.color;
+    header.appendChild(dot);
+    header.appendChild(createEl("span", "service-card-name", style.label));
+    card.appendChild(header);
+
+    const stats_row = createEl("div", "service-card-stats");
+    stats_row.appendChild(createStatItem("Requests", formatNumber(stats.requests)));
+    stats_row.appendChild(createStatItem("Tokens", formatNumber(stats.tokens)));
+    stats_row.appendChild(createStatItem("Cost", formatCost(stats.cost)));
+    stats_row.appendChild(createStatItem("Tools", formatNumber(stats.tools)));
+    card.appendChild(stats_row);
+
+    container.appendChild(card);
+  });
+}
+
+function createStatItem(label, value) {
+  const item = createEl("div", "service-stat-item");
+  item.appendChild(createEl("div", "service-stat-label", label));
+  item.appendChild(createEl("div", "service-stat-value", value));
+  return item;
+}
+
 function updateAll(data) {
   snapshot = data;
   updateCards(data);
@@ -315,6 +379,7 @@ function updateAll(data) {
     );
   }
 
+  updateServiceCards(data.byService);
   updateFeed(data.recentRequests);
   updateLogs(data.recentLogs);
 }
