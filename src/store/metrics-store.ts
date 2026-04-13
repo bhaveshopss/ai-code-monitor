@@ -70,21 +70,24 @@ export interface MetricsSnapshot {
   uptimeMs: number;
 }
 
-// --- Known metric name mappings ---
+// --- Known OTLP metric name mappings ---
+// Supports: generic LLM metrics, gen_ai.* semantic conventions,
+// Codex CLI (codex.*), and any OTel-compatible tool.
 
 const TOKEN_INPUT_NAMES = new Set([
   "llm.tokens.input",
   "llm.token.usage.input",
   "gen_ai.client.token.usage.input_tokens",
-  "gen_ai.client.token.usage",
+  "gen_ai.client.token.usage",        // with gen_ai.token.type=input attribute
   "llm_tokens_input",
+  "codex.turn.token_usage",           // Codex per-turn token counter
 ]);
 
 const TOKEN_OUTPUT_NAMES = new Set([
   "llm.tokens.output",
   "llm.token.usage.output",
   "gen_ai.client.token.usage.output_tokens",
-  "gen_ai.client.token.usage",
+  "gen_ai.client.token.usage",        // with gen_ai.token.type=output attribute
   "llm_tokens_output",
 ]);
 
@@ -100,6 +103,8 @@ const LATENCY_NAMES = new Set([
   "llm.request.latency",
   "gen_ai.client.operation.duration",
   "llm_request_duration",
+  "codex.api_request.duration_ms",    // Codex API request latency (histogram, in ms)
+  "codex.turn.e2e_duration_ms",       // Codex end-to-end turn latency
 ]);
 
 const REQUEST_COUNT_NAMES = new Set([
@@ -107,6 +112,7 @@ const REQUEST_COUNT_NAMES = new Set([
   "llm.requests",
   "gen_ai.client.requests",
   "llm_request_count",
+  "codex.api_request",                // Codex API request counter
 ]);
 
 const ERROR_NAMES = new Set([
@@ -119,12 +125,31 @@ const TOOL_DURATION_NAMES = new Set([
   "tool.execution.duration",
   "tool.duration",
   "tool_execution_duration",
+  "codex.tool.call.duration_ms",      // Codex tool call latency (histogram, in ms)
 ]);
 
 const TOOL_COUNT_NAMES = new Set([
   "tool.execution.count",
   "tool.executions",
   "tool_execution_count",
+  "codex.tool.call",                  // Codex tool call counter
+  "codex.turn.tool.call",             // Codex per-turn tool call counter
+  "codex.tool.unified_exec",          // Codex unified exec tool calls
+]);
+
+// Codex-specific histogram metrics where the unit is already ms (not seconds)
+const MS_UNIT_HISTOGRAMS = new Set([
+  "codex.api_request.duration_ms",
+  "codex.turn.e2e_duration_ms",
+  "codex.turn.ttft.duration_ms",
+  "codex.turn.ttfm.duration_ms",
+  "codex.tool.call.duration_ms",
+  "codex.sse_event.duration_ms",
+  "codex.websocket.request.duration_ms",
+  "codex.websocket.event.duration_ms",
+  "codex.responses_api_overhead.duration_ms",
+  "codex.responses_api_inference_time.duration_ms",
+  "codex.startup_prewarm.duration_ms",
 ]);
 
 // --- Ring buffer ---
@@ -254,6 +279,10 @@ export class MetricsStore {
     }
   }
 
+  // =====================================================================
+  // OTLP Metrics ingestion (Codex counters/histograms, gen_ai.*, generic)
+  // =====================================================================
+
   ingestMetrics(payload: OtlpMetricsPayload) {
     const resourceMetrics = payload.resourceMetrics ?? [];
 
@@ -275,14 +304,14 @@ export class MetricsStore {
   private processMetric(metric: { name: string; sum?: any; gauge?: any; histogram?: any }, serviceName: string) {
     const name = metric.name;
 
-    // Process sum data points
+    // Process sum data points (counters)
     const sumPoints = metric.sum?.dataPoints ?? [];
     for (const point of sumPoints) {
       const value = getNumericValue(point);
       const attrs = extractAttributes(point.attributes);
       const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? attrs["llm.model"] ?? "";
       const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? attrs["llm.provider"] ?? "";
-      const tool = attrs["tool"] ?? attrs["tool.name"] ?? "";
+      const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? "";
       const tokenType = attrs["gen_ai.token.type"] ?? attrs["token.type"] ?? "";
 
       // Token input
@@ -306,7 +335,7 @@ export class MetricsStore {
         this.updateModelMetrics(model, provider, { cost: value });
       }
 
-      // Request count
+      // Request count (including codex.api_request counter)
       if (REQUEST_COUNT_NAMES.has(name)) {
         this.totalRequests += value;
         this.requestTimeSeries.add(value);
@@ -331,7 +360,7 @@ export class MetricsStore {
         this.updateModelMetrics(model, provider, { errors: value });
       }
 
-      // Tool execution count
+      // Tool execution count (including codex.tool.call, codex.turn.tool.call)
       if (TOOL_COUNT_NAMES.has(name) && tool) {
         const existing = this.toolMetrics.get(tool) ?? { count: 0, totalLatencyMs: 0 };
         existing.count += value;
@@ -345,17 +374,26 @@ export class MetricsStore {
       const attrs = extractAttributes(point.attributes);
       const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? "";
       const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "";
-      const tool = attrs["tool"] ?? attrs["tool.name"] ?? "";
+      const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? "";
+      const isSuccess = attrs["success"] !== "false";
+
+      // Codex histograms are already in ms; gen_ai.* and generic are in seconds
+      const isMs = MS_UNIT_HISTOGRAMS.has(name);
 
       if (LATENCY_NAMES.has(name)) {
         const count = Number(point.count ?? 0);
         const sum = point.sum ?? 0;
         if (count > 0) {
-          const avgMs = (sum / count) * 1000; // Convert seconds to ms
+          const avgMs = isMs ? (sum / count) : (sum / count) * 1000;
           this.latencyTracker.add(avgMs);
           this.totalRequests += count;
           this.requestTimeSeries.add(count);
           this.updateModelMetrics(model, provider, { requests: count });
+
+          if (!isSuccess) {
+            this.totalErrors += count;
+            this.updateModelMetrics(model, provider, { errors: count });
+          }
 
           this.recentRequests.push({
             timestamp: Date.now(),
@@ -366,7 +404,7 @@ export class MetricsStore {
             tokensOut: 0,
             cost: 0,
             latencyMs: avgMs,
-            error: false,
+            error: !isSuccess,
           });
         }
       }
@@ -375,10 +413,10 @@ export class MetricsStore {
         const count = Number(point.count ?? 0);
         const sum = point.sum ?? 0;
         if (count > 0) {
-          const avgMs = (sum / count) * 1000;
+          const avgMs = isMs ? (sum / count) : (sum / count) * 1000;
           const existing = this.toolMetrics.get(tool) ?? { count: 0, totalLatencyMs: 0 };
           existing.count += count;
-          existing.totalLatencyMs += sum * 1000;
+          existing.totalLatencyMs += isMs ? sum : sum * 1000;
           this.toolMetrics.set(tool, existing);
 
           if (!this.toolLatencyTrackers.has(tool)) {
@@ -393,8 +431,6 @@ export class MetricsStore {
     const gaugePoints = metric.gauge?.dataPoints ?? [];
     for (const point of gaugePoints) {
       const value = getNumericValue(point);
-      const attrs = extractAttributes(point.attributes);
-      // Store generic gauge metrics if they match known patterns
       if (TOKEN_INPUT_NAMES.has(name)) {
         this.totalTokensIn = value;
       }
@@ -411,9 +447,6 @@ export class MetricsStore {
   ) {
     if (!model && !provider) return;
 
-    const key = model || provider || "unknown";
-
-    // Model metrics
     if (model) {
       const existing = this.modelMetrics.get(model) ?? {
         model,
@@ -433,7 +466,6 @@ export class MetricsStore {
       this.modelMetrics.set(model, existing);
     }
 
-    // Provider metrics
     if (provider) {
       const existing = this.providerMetrics.get(provider) ?? { requests: 0, tokens: 0, cost: 0 };
       existing.requests += delta.requests ?? 0;
@@ -442,6 +474,10 @@ export class MetricsStore {
       this.providerMetrics.set(provider, existing);
     }
   }
+
+  // =====================================================================
+  // OTLP Logs ingestion (Claude Code, Codex logs, gen_ai.* events)
+  // =====================================================================
 
   ingestLogs(payload: OtlpLogsPayload) {
     const resourceLogs = payload.resourceLogs ?? [];
@@ -467,9 +503,9 @@ export class MetricsStore {
           };
           this.recentLogs.push(logEvent);
 
-          // Extract metrics from Claude Code log records.
-          // Claude Code sends telemetry as logs where the body is the event name
-          // and attributes contain the actual metric data.
+          // Extract metrics from log-based telemetry.
+          // Claude Code, Codex, and other tools send telemetry as logs
+          // where the body is the event name and attributes contain metric data.
           if (this.extractMetricsFromLog(body, attrs, timestamp, serviceName)) {
             hasMetricData = true;
           }
@@ -484,8 +520,8 @@ export class MetricsStore {
   }
 
   /**
-   * Extract metrics from log-based telemetry (Claude Code, etc.).
-   * Returns true if metrics were extracted.
+   * Extract metrics from log-based telemetry.
+   * Supports: Claude Code, Codex CLI, and gen_ai.* conventions.
    */
   private extractMetricsFromLog(
     body: string,
@@ -495,66 +531,109 @@ export class MetricsStore {
   ): boolean {
     const eventName = body.toLowerCase();
 
-    // Claude Code API request logs contain token counts, cost, and latency
-    if (eventName.includes("api_request") || eventName.includes("api.request") || eventName.includes("llm.request")) {
-      const tokensIn = this.parseNum(attrs["input_tokens"] ?? attrs["gen_ai.usage.input_tokens"] ?? attrs["prompt_tokens"] ?? attrs["tokens.input"]);
-      const tokensOut = this.parseNum(attrs["output_tokens"] ?? attrs["gen_ai.usage.output_tokens"] ?? attrs["completion_tokens"] ?? attrs["tokens.output"]);
-      const cost = this.parseFloat(attrs["cost_usd"] ?? attrs["cost"] ?? attrs["llm.cost"] ?? attrs["gen_ai.cost"]);
-      const latencyMs = this.parseNum(attrs["duration_ms"] ?? attrs["latency_ms"] ?? attrs["duration"] ?? attrs["response_time"]);
+    // ---- API request logs (Claude Code + Codex + generic) ----
+    // Claude Code: "claude_code.api_request"
+    // Codex: "codex.api_request"
+    // Generic: "llm.request", "api.request"
+    if (
+      eventName.includes("api_request") ||
+      eventName.includes("api.request") ||
+      eventName.includes("llm.request")
+    ) {
+      const tokensIn = this.parseNum(
+        attrs["input_tokens"] ?? attrs["gen_ai.usage.input_tokens"] ??
+        attrs["prompt_tokens"] ?? attrs["tokens.input"] ??
+        attrs["input_token_count"]   // Codex
+      );
+      const tokensOut = this.parseNum(
+        attrs["output_tokens"] ?? attrs["gen_ai.usage.output_tokens"] ??
+        attrs["completion_tokens"] ?? attrs["tokens.output"] ??
+        attrs["output_token_count"]  // Codex
+      );
+      const cost = this.parseFloatVal(
+        attrs["cost_usd"] ?? attrs["cost"] ?? attrs["llm.cost"] ?? attrs["gen_ai.cost"]
+      );
+      const latencyMs = this.parseNum(
+        attrs["duration_ms"] ?? attrs["latency_ms"] ?? attrs["duration"] ?? attrs["response_time"]
+      );
       const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? attrs["llm.model"] ?? "";
       const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? attrs["llm.provider"] ?? "";
       const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? "";
       const isError = (attrs["status"] ?? attrs["error"] ?? "").toLowerCase() === "error" ||
-                      attrs["status_code"] === "error" ||
+                      attrs["success"] === "false" ||
                       eventName.includes("error");
 
-      if (tokensIn > 0 || tokensOut > 0 || cost > 0) {
+      if (tokensIn > 0 || tokensOut > 0 || cost > 0 || latencyMs > 0) {
         this.totalTokensIn += tokensIn;
         this.totalTokensOut += tokensOut;
         this.totalCost += cost;
         this.totalRequests += 1;
 
-        if (tokensIn > 0 || tokensOut > 0) {
-          this.tokenTimeSeries.add(tokensIn + tokensOut);
-        }
-        if (cost > 0) {
-          this.costTimeSeries.add(cost);
-        }
+        if (tokensIn > 0 || tokensOut > 0) this.tokenTimeSeries.add(tokensIn + tokensOut);
+        if (cost > 0) this.costTimeSeries.add(cost);
         this.requestTimeSeries.add(1);
-
-        if (latencyMs > 0) {
-          this.latencyTracker.add(latencyMs);
-        }
-
-        if (isError) {
-          this.totalErrors += 1;
-        }
+        if (latencyMs > 0) this.latencyTracker.add(latencyMs);
+        if (isError) this.totalErrors += 1;
 
         this.updateModelMetrics(model, provider, {
-          tokensIn,
-          tokensOut,
-          cost,
-          requests: 1,
-          errors: isError ? 1 : 0,
+          tokensIn, tokensOut, cost, requests: 1, errors: isError ? 1 : 0,
         });
 
         this.recentRequests.push({
           timestamp: timestamp || Date.now(),
-          model,
-          provider,
-          tool,
-          tokensIn,
-          tokensOut,
-          cost,
-          latencyMs,
-          error: isError,
+          model, provider, tool, tokensIn, tokensOut, cost, latencyMs, error: isError,
         });
 
         return true;
       }
     }
 
-    // Claude Code API error logs
+    // ---- SSE event logs (Codex) ----
+    // Codex sends "codex.sse_event" with event.kind="response.completed" containing token counts
+    if (eventName.includes("sse_event") || eventName.includes("sse.event")) {
+      const kind = (attrs["event.kind"] ?? attrs["kind"] ?? "").toLowerCase();
+      const tokensIn = this.parseNum(attrs["input_token_count"] ?? attrs["input_tokens"]);
+      const tokensOut = this.parseNum(attrs["output_token_count"] ?? attrs["output_tokens"]);
+      const cachedTokens = this.parseNum(attrs["cached_token_count"] ?? attrs["cache_read_tokens"]);
+      const reasoningTokens = this.parseNum(attrs["reasoning_token_count"]);
+      const latencyMs = this.parseNum(attrs["duration_ms"] ?? attrs["duration"]);
+      const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? "";
+      const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "openai";
+
+      if (tokensIn > 0 || tokensOut > 0) {
+        this.totalTokensIn += tokensIn + cachedTokens;
+        this.totalTokensOut += tokensOut + reasoningTokens;
+        this.tokenTimeSeries.add(tokensIn + tokensOut + cachedTokens + reasoningTokens);
+
+        // Count as a request if this is a completed response
+        if (kind.includes("completed") || kind.includes("done")) {
+          this.totalRequests += 1;
+          this.requestTimeSeries.add(1);
+          if (latencyMs > 0) this.latencyTracker.add(latencyMs);
+
+          this.updateModelMetrics(model, provider, {
+            tokensIn: tokensIn + cachedTokens,
+            tokensOut: tokensOut + reasoningTokens,
+            requests: 1,
+          });
+
+          this.recentRequests.push({
+            timestamp: timestamp || Date.now(),
+            model, provider, tool: "", tokensIn: tokensIn + cachedTokens,
+            tokensOut: tokensOut + reasoningTokens, cost: 0, latencyMs, error: false,
+          });
+        } else {
+          this.updateModelMetrics(model, provider, {
+            tokensIn: tokensIn + cachedTokens,
+            tokensOut: tokensOut + reasoningTokens,
+          });
+        }
+
+        return true;
+      }
+    }
+
+    // ---- API error logs (Claude Code + Codex + generic) ----
     if (eventName.includes("api_error") || eventName.includes("api.error")) {
       this.totalErrors += 1;
       const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? "";
@@ -565,18 +644,45 @@ export class MetricsStore {
       return true;
     }
 
-    // Tool execution logs
-    if (eventName.includes("tool_result") || eventName.includes("tool.execution") || eventName.includes("tool_call")) {
-      const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? attrs["name"] ?? "";
+    // ---- Tool execution logs (Claude Code + Codex + generic) ----
+    // Claude Code: "claude_code.tool_result"
+    // Codex: "codex.tool_result", "codex.tool_decision"
+    // Generic: "tool.execution", "tool_call"
+    if (
+      eventName.includes("tool_result") ||
+      eventName.includes("tool.execution") ||
+      eventName.includes("tool_call")
+    ) {
+      const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ??
+                   attrs["name"] ?? attrs["call_id"] ?? "";
       const durationMs = this.parseNum(attrs["duration_ms"] ?? attrs["duration"] ?? attrs["latency_ms"]);
+      const isSuccess = attrs["success"] !== "false";
 
       if (tool) {
         const existing = this.toolMetrics.get(tool) ?? { count: 0, totalLatencyMs: 0 };
         existing.count += 1;
         existing.totalLatencyMs += durationMs;
         this.toolMetrics.set(tool, existing);
+
+        if (!isSuccess) {
+          this.totalErrors += 1;
+        }
+
         return true;
       }
+    }
+
+    // ---- Conversation start logs (Codex) ----
+    // "codex.conversation_starts" — just track as a connected service
+    if (eventName.includes("conversation_start")) {
+      return false; // Already tracked via service.name
+    }
+
+    // ---- User prompt logs (Claude Code + Codex) ----
+    // "claude_code.user_prompt", "codex.user_prompt"
+    // No metrics to extract, just informational
+    if (eventName.includes("user_prompt")) {
+      return false;
     }
 
     return false;
@@ -588,11 +694,15 @@ export class MetricsStore {
     return isNaN(n) ? 0 : n;
   }
 
-  private parseFloat(val: string | undefined): number {
+  private parseFloatVal(val: string | undefined): number {
     if (!val) return 0;
     const n = Number(val);
     return isNaN(n) ? 0 : n;
   }
+
+  // =====================================================================
+  // OTLP Traces ingestion (Codex spans, gen_ai.* spans, generic)
+  // =====================================================================
 
   ingestTraces(payload: OtlpTracesPayload) {
     const resourceSpans = payload.resourceSpans ?? [];
@@ -614,21 +724,51 @@ export class MetricsStore {
 
             const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? "";
             const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "";
-            const tool = attrs["tool"] ?? "";
+            const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? "";
+            const tokensIn = this.parseNum(
+              attrs["gen_ai.usage.input_tokens"] ?? attrs["input_tokens"] ??
+              attrs["input_token_count"] ?? attrs["prompt_tokens"]
+            );
+            const tokensOut = this.parseNum(
+              attrs["gen_ai.usage.output_tokens"] ?? attrs["output_tokens"] ??
+              attrs["output_token_count"] ?? attrs["completion_tokens"]
+            );
+            const cost = this.parseFloatVal(attrs["llm.cost"] ?? attrs["cost_usd"] ?? attrs["cost"]);
+            const isError = span.status?.code === 2 || attrs["success"] === "false";
+
+            // Track tokens/cost from spans
+            if (tokensIn > 0 || tokensOut > 0) {
+              this.totalTokensIn += tokensIn;
+              this.totalTokensOut += tokensOut;
+              this.tokenTimeSeries.add(tokensIn + tokensOut);
+            }
+            if (cost > 0) {
+              this.totalCost += cost;
+              this.costTimeSeries.add(cost);
+            }
+
+            this.totalRequests += 1;
+            this.requestTimeSeries.add(1);
+
+            this.updateModelMetrics(model, provider, {
+              tokensIn, tokensOut, cost, requests: 1, errors: isError ? 1 : 0,
+            });
+
+            // Track tool spans
+            if (tool) {
+              const existing = this.toolMetrics.get(tool) ?? { count: 0, totalLatencyMs: 0 };
+              existing.count += 1;
+              existing.totalLatencyMs += durationMs;
+              this.toolMetrics.set(tool, existing);
+            }
 
             this.recentRequests.push({
               timestamp: startMs,
-              model,
-              provider,
-              tool,
-              tokensIn: Number(attrs["gen_ai.usage.input_tokens"] ?? 0),
-              tokensOut: Number(attrs["gen_ai.usage.output_tokens"] ?? 0),
-              cost: Number(attrs["llm.cost"] ?? 0),
-              latencyMs: durationMs,
-              error: span.status?.code === 2,
+              model, provider, tool, tokensIn, tokensOut, cost,
+              latencyMs: durationMs, error: isError,
             });
 
-            if (span.status?.code === 2) {
+            if (isError) {
               this.totalErrors++;
             }
           }
