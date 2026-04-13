@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { startMonitor } from "../src/index.js";
 import { setupOpenCode } from "../src/setup-opencode.js";
 import { setupCodex } from "../src/setup-codex.js";
+import { setupKiro } from "../src/setup-kiro.js";
 
 const program = new Command();
 
@@ -49,6 +50,14 @@ program
   .option("-e, --endpoint <url>", "OTLP endpoint", "http://localhost:4318")
   .action(async (opts) => {
     await setupCodex(opts.endpoint);
+  });
+
+program
+  .command("setup-kiro")
+  .description("Set up Kiro CLI telemetry monitoring")
+  .option("-e, --endpoint <url>", "OTLP endpoint", "http://localhost:4318")
+  .action(async (opts) => {
+    await setupKiro(opts.endpoint);
   });
 
 program.parse();

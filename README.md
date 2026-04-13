@@ -94,6 +94,34 @@ This writes OTLP HTTP export config to `~/.codex/config.toml`.
 
 > **Note:** Codex CLI v0.120.0 currently filters OTel exports to internal analytics (Statsig). Full OTLP export support is expected in a future release. The setup command and metric handling are ready — it will work automatically once OpenAI enables public OTLP export.
 
+#### Kiro CLI
+
+Kiro CLI monitoring is **automatic** — just run the monitor and use kiro-cli normally:
+
+```bash
+# Terminal 1: Start the monitor (auto-sets up kiro-cli wrapper)
+npx ai-code-monitor
+
+# Terminal 2: Use kiro-cli with telemetry
+export PATH=.kiro/bin:$PATH
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+kiro-cli help
+```
+
+The wrapper automatically captures execution time and success/failure, then sends it to the monitor.
+
+**Manual setup (if needed):**
+
+```bash
+npx ai-code-monitor setup-kiro
+```
+
+**Custom endpoint:**
+
+```bash
+npx ai-code-monitor setup-kiro --endpoint http://localhost:9999
+```
+
 #### Any OTel-compatible tool
 
 Any tool that exports OTLP over HTTP works out of the box:
@@ -110,6 +138,7 @@ Open `http://localhost:3000` in your browser. Metrics appear in real-time as you
 ---
 
 ## Dashboard
+
 
 | Section | What it shows |
 |---|---|
@@ -139,6 +168,7 @@ Options:
 Commands:
   setup-opencode            Install OpenCode telemetry plugin in current project
   setup-codex               Configure Codex CLI OTel export in ~/.codex/config.toml
+  setup-kiro                Set up Kiro CLI telemetry monitoring
 ```
 
 ### Examples
@@ -168,6 +198,7 @@ npx ai-code-monitor setup-codex
 |---|---|---|---|
 | **Claude Code** | Full support | Env vars | Tokens, cost, model, latency, tools, errors |
 | **OpenCode** | Full support | `npx ai-code-monitor setup-opencode` | Tool executions, LOC changes, permissions, tokens via AI SDK |
+| **Kiro CLI** | Full support | Auto (on first `npm start`) | Execution time, success/failure |
 | **Codex CLI** | Config ready | `npx ai-code-monitor setup-codex` | Waiting on OpenAI to enable public OTLP export |
 | **Any OTel tool** | Full support | `OTEL_EXPORTER_OTLP_ENDPOINT` env var | Whatever metrics/logs/traces the tool exports |
 
