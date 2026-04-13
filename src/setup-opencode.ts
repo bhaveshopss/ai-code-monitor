@@ -45,7 +45,9 @@ export async function setupOpenCode(projectDir: string, endpoint: string) {
 
   // 4. Create or update .opencode/opencode.jsonc
   const configPath = join(dir, ".opencode", "opencode.jsonc");
-  const pluginRef = "file://.opencode/plugin/ai-code-monitor-telemetry";
+  // Use absolute file:// URI so OpenCode resolves the plugin regardless of cwd
+  const pluginAbsPath = join(dir, ".opencode", "plugin", "ai-code-monitor-telemetry");
+  const pluginRef = "file://" + pluginAbsPath;
   let config: Record<string, any> = {};
 
   if (existsSync(configPath)) {
@@ -61,13 +63,12 @@ export async function setupOpenCode(projectDir: string, endpoint: string) {
     }
   }
 
-  // Ensure plugin array includes our plugin
+  // Ensure plugin array includes our plugin (remove any old relative refs)
   if (!Array.isArray(config.plugin)) {
     config.plugin = [];
   }
-  if (!config.plugin.includes(pluginRef)) {
-    config.plugin.push(pluginRef);
-  }
+  config.plugin = config.plugin.filter((p: string) => !p.includes("ai-code-monitor-telemetry"));
+  config.plugin.push(pluginRef);
 
   // Ensure experimental.openTelemetry is enabled
   if (!config.experimental || typeof config.experimental !== "object") {
