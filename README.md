@@ -43,6 +43,28 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 claude
 ```
 
+#### OpenCode (with telemetry plugin)
+
+Install the [opencode-telemetry-plugin](https://github.com/pai4451/opencode-telemetry-plugin):
+
+```bash
+cd /your/project
+mkdir -p .opencode/plugin
+git clone https://github.com/pai4451/opencode-telemetry-plugin .opencode/plugin/opencode-telemetry
+cd .opencode/plugin/opencode-telemetry && npm install && npm run build && cd -
+```
+
+Add to `.opencode/opencode.jsonc`:
+
+```jsonc
+{
+  "plugin": ["file://.opencode/plugin/opencode-telemetry"],
+  "experimental": { "openTelemetry": true }
+}
+```
+
+Then run `opencode` — telemetry auto-exports to `localhost:4318`.
+
 #### Any OTel-compatible tool
 
 Point OTLP HTTP export to `http://localhost:4318`:
@@ -103,6 +125,16 @@ npx ai-code-monitor --no-open
 | `claude_code.api_error` | error count |
 | `claude_code.tool_result` | tool usage |
 
+### OTLP Metrics (OpenCode plugin)
+
+| Metric | Type | Description |
+|---|---|---|
+| `opencode.tool.executions` | Counter | Tool execution count |
+| `opencode.tool.duration` | Histogram | Tool execution latency (ms) |
+| `opencode.tool.loc.added` | Counter | Lines of code added |
+| `opencode.tool.loc.deleted` | Counter | Lines of code deleted |
+| `opencode.permission.requests` | Counter | Permission ask/accept/reject |
+
 ### OTLP Metrics (gen_ai.* semantic conventions)
 
 | Metric | Type | Description |
@@ -141,8 +173,8 @@ Any OTLP trace with `gen_ai.*` attributes is automatically parsed for token coun
 | Tool | Status | Notes |
 |---|---|---|
 | **Claude Code** | Works | Native OTel log export with token/cost data |
+| **OpenCode** | Works (with plugin) | Via [opencode-telemetry-plugin](https://github.com/pai4451/opencode-telemetry-plugin) — tracks tool usage, LOC, permissions |
 | **Codex (OpenAI)** | Ready when supported | Codex Rust binary has OTel support; npm `@openai/codex` does not yet export telemetry |
-| **OpenCode / Crush** | Not supported | No OTel export — uses local SQLite / PostHog only |
 | **Any OTel tool** | Works | Any app exporting OTLP metrics/logs/traces over HTTP |
 
 ## Tech Stack

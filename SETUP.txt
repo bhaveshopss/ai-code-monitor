@@ -23,14 +23,34 @@ STEP 3: Open dashboard
 http://localhost:3000
 
 
+STEP 2b: Configure OpenCode (with telemetry plugin)
+-----------------------------------------
+
+# Install the telemetry plugin
+cd /your/project
+mkdir -p .opencode/plugin
+git clone https://github.com/pai4451/opencode-telemetry-plugin .opencode/plugin/opencode-telemetry
+cd .opencode/plugin/opencode-telemetry && npm install && npm run build && cd -
+
+# Add to .opencode/opencode.jsonc:
+# {
+#   "plugin": ["file://.opencode/plugin/opencode-telemetry"],
+#   "experimental": { "openTelemetry": true }
+# }
+
+# Run OpenCode (telemetry auto-exports to localhost:4318)
+opencode
+
+
 ============================================
   NOTES
 ============================================
 
+- OpenCode: Requires the community telemetry plugin.
+  Tracks tool executions, lines of code, and permissions (not tokens/cost).
+
 - Codex (npm @openai/codex): Does NOT support OTel export yet.
   The Rust binary (codex-rs) has OTel support but the npm version does not.
-
-- OpenCode / Crush: Does NOT export OTel data.
 
 - Any tool that exports OTLP over HTTP will work.
   Just set OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318

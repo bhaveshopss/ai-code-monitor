@@ -200,6 +200,11 @@ function updateCards(data) {
 
   document.getElementById("uptime").textContent = formatUptime(data.uptimeMs);
 
+  const totalLoc = (data.totalLinesAdded || 0) + (data.totalLinesDeleted || 0);
+  document.getElementById("linesChanged").textContent = formatNumber(totalLoc);
+  document.getElementById("linesSub").textContent =
+    "+" + formatNumber(data.totalLinesAdded || 0) + " / -" + formatNumber(data.totalLinesDeleted || 0);
+
   const servicesEl = document.getElementById("connectedServices");
   if (data.connectedServices && data.connectedServices.length > 0) {
     servicesEl.textContent = data.connectedServices.join(", ");

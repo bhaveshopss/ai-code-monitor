@@ -54,6 +54,8 @@ export interface MetricsSnapshot {
   totalCost: number;
   totalRequests: number;
   totalErrors: number;
+  totalLinesAdded: number;
+  totalLinesDeleted: number;
   avgLatencyMs: number;
   p50LatencyMs: number;
   p95LatencyMs: number;
@@ -126,6 +128,7 @@ const TOOL_DURATION_NAMES = new Set([
   "tool.duration",
   "tool_execution_duration",
   "codex.tool.call.duration_ms",      // Codex tool call latency (histogram, in ms)
+  "opencode.tool.duration",           // OpenCode plugin tool duration (histogram, in ms)
 ]);
 
 const TOOL_COUNT_NAMES = new Set([
@@ -135,9 +138,19 @@ const TOOL_COUNT_NAMES = new Set([
   "codex.tool.call",                  // Codex tool call counter
   "codex.turn.tool.call",             // Codex per-turn tool call counter
   "codex.tool.unified_exec",          // Codex unified exec tool calls
+  "opencode.tool.executions",         // OpenCode plugin tool execution counter
 ]);
 
-// Codex-specific histogram metrics where the unit is already ms (not seconds)
+// OpenCode telemetry plugin — Lines of Code metrics
+const LOC_ADDED_NAMES = new Set([
+  "opencode.tool.loc.added",
+]);
+
+const LOC_DELETED_NAMES = new Set([
+  "opencode.tool.loc.deleted",
+]);
+
+// Histogram metrics where the unit is already ms (not seconds)
 const MS_UNIT_HISTOGRAMS = new Set([
   "codex.api_request.duration_ms",
   "codex.turn.e2e_duration_ms",
@@ -150,6 +163,7 @@ const MS_UNIT_HISTOGRAMS = new Set([
   "codex.responses_api_overhead.duration_ms",
   "codex.responses_api_inference_time.duration_ms",
   "codex.startup_prewarm.duration_ms",
+  "opencode.tool.duration",            // OpenCode plugin tool duration (ms)
 ]);
 
 // --- Ring buffer ---
@@ -251,6 +265,8 @@ export class MetricsStore {
   private totalCost = 0;
   private totalRequests = 0;
   private totalErrors = 0;
+  private totalLinesAdded = 0;
+  private totalLinesDeleted = 0;
 
   private modelMetrics = new Map<string, ModelMetrics>();
   private providerMetrics = new Map<string, { requests: number; tokens: number; cost: number }>();
@@ -360,11 +376,19 @@ export class MetricsStore {
         this.updateModelMetrics(model, provider, { errors: value });
       }
 
-      // Tool execution count (including codex.tool.call, codex.turn.tool.call)
+      // Tool execution count (including codex.tool.call, opencode.tool.executions)
       if (TOOL_COUNT_NAMES.has(name) && tool) {
         const existing = this.toolMetrics.get(tool) ?? { count: 0, totalLatencyMs: 0 };
         existing.count += value;
         this.toolMetrics.set(tool, existing);
+      }
+
+      // Lines of code (OpenCode telemetry plugin)
+      if (LOC_ADDED_NAMES.has(name)) {
+        this.totalLinesAdded += value;
+      }
+      if (LOC_DELETED_NAMES.has(name)) {
+        this.totalLinesDeleted += value;
       }
     }
 
@@ -794,6 +818,8 @@ export class MetricsStore {
       totalCost: this.totalCost,
       totalRequests: this.totalRequests,
       totalErrors: this.totalErrors,
+      totalLinesAdded: this.totalLinesAdded,
+      totalLinesDeleted: this.totalLinesDeleted,
       avgLatencyMs: this.latencyTracker.average(),
       p50LatencyMs: this.latencyTracker.percentile(50),
       p95LatencyMs: this.latencyTracker.percentile(95),
