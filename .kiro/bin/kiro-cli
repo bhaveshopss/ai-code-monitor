@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+import { spawn } from 'child_process';
+import http from 'http';
+import { URL } from 'url';
+
+const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT || 'http://localhost:4318';
+const startTime = Date.now();
+
+// Run the real kiro-cli binary (not this wrapper)
+const kiro = spawn('/usr/bin/kiro-cli', process.argv.slice(2), {
+  stdio: 'inherit'
+});
+
+kiro.on('close', (code) => {
+  const duration = Date.now() - startTime;
+  
+  // Send telemetry with recognized metric names
+  const telemetry = {
+    resourceMetrics: [{
+      resource: {
+        attributes: [
+          { key: 'service.name', value: { stringValue: 'kiro-cli' } }
+        ]
+      },
+      scopeMetrics: [{
+        scope: { name: 'kiro-cli-telemetry' },
+        metrics: [
+          {
+            name: 'tool.execution.count',
+            sum: {
+              dataPoints: [{
+                attributes: [
+                  { key: 'tool.name', value: { stringValue: 'kiro-cli' } },
+                  { key: 'success', value: { boolValue: code === 0 } }
+                ],
+                asInt: 1,
+                timeUnixNano: String(Date.now() * 1000000)
+              }]
+            }
+          },
+          {
+            name: 'tool.execution.duration',
+            histogram: {
+              dataPoints: [{
+                attributes: [
+                  { key: 'tool.name', value: { stringValue: 'kiro-cli' } },
+                  { key: 'success', value: { boolValue: code === 0 } }
+                ],
+                count: 1,
+                sum: duration,
+                timeUnixNano: String(Date.now() * 1000000)
+              }]
+            }
+          }
+        ]
+      }]
+    }]
+  };
+
+  const data = JSON.stringify(telemetry);
+  const url = new URL(endpoint);
+  
+  const options = {
+    hostname: url.hostname,
+    port: url.port || 80,
+    path: '/v1/metrics',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Content-Length': data.length
+    }
+  };
+
+  const req = http.request(options, (res) => {
+    res.on('data', () => {});
+    res.on('end', () => process.exit(code));
+  });
+
+  req.on('error', () => process.exit(code));
+  req.write(data);
+  req.end();
+});

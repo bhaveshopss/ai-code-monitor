@@ -1,6 +1,9 @@
 import { MetricsStore } from "./store/metrics-store.js";
 import { startServers } from "./server/web-server.js";
 import { banner, info, success, warn } from "./utils/logger.js";
+import { setupKiro } from "./setup-kiro.js";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 export interface MonitorOptions {
   dashboardPort: number;
@@ -29,6 +32,14 @@ export async function startMonitor(options: MonitorOptions) {
 
   success(`Dashboard running at http://localhost:${dashboardPort}`);
   success(`OTLP receiver running at http://localhost:${otlpPort}`);
+
+  // Auto-setup kiro-cli in background if not already done
+  const kiroBinPath = join(process.cwd(), ".kiro", "bin", "kiro-cli");
+  if (!existsSync(kiroBinPath)) {
+    setupKiro(`http://localhost:${otlpPort}`).catch(() => {
+      warn("Could not auto-setup kiro-cli monitoring");
+    });
+  }
 
   // Auto-open browser
   if (options.openBrowser) {
