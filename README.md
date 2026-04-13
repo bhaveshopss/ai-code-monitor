@@ -1,6 +1,6 @@
 # ai-code-monitor
 
-Real-time monitoring dashboard for AI coding agents. One command to track tokens, costs, and latency for **Claude Code** and any OpenTelemetry-compatible AI tool.
+Real-time monitoring dashboard for AI coding agents. One command to track tokens, costs, and latency for **Claude Code**, **OpenCode**, and any OpenTelemetry-compatible AI tool.
 
 ```bash
 npx ai-code-monitor
@@ -8,31 +8,36 @@ npx ai-code-monitor
 
 ## Why?
 
-Teams using AI coding assistants have zero visibility into what they're spending. This tool gives you instant, real-time metrics — no Docker, no Grafana, no config.
+AI coding assistants are powerful — but expensive and opaque. Teams have zero visibility into what they're spending, which models are being used, or how tools perform. **ai-code-monitor** gives you instant, real-time metrics with one command — no Docker, no Grafana, no config files.
 
 ## Features
 
-- **OTLP HTTP Receiver** — Standard OpenTelemetry endpoint on port 4318
-- **Real-time Web Dashboard** — Token usage, costs, latency charts, live request feed
+- **One-command setup** — `npx ai-code-monitor` and you're running
+- **Real-time dashboard** — Token usage, costs, latency charts, live request feed via WebSocket
+- **Multi-agent support** — Monitor Claude Code, OpenCode, and any OTel-compatible tool side by side
 - **Multi-model tracking** — Breaks down metrics by model, provider, and tool
-- **Zero config** — Just run `npx ai-code-monitor` and point your AI CLI at it
-- **Works with Claude Code** — Claude Code has built-in OTel telemetry support
+- **Provider detection** — Automatically identifies Amazon Bedrock, Anthropic, OpenAI, Google, and more from model IDs
+- **Standard OTLP** — Receives OpenTelemetry metrics, logs, and traces over HTTP on port 4318
+
+---
 
 ## Quick Start
 
-### 1. Start the monitor
+### Step 1: Start the monitor
 
 ```bash
 npx ai-code-monitor
 ```
 
-This starts:
-- Dashboard at `http://localhost:3000`
-- OTLP receiver at `http://localhost:4318`
+This starts two servers:
+- **Dashboard** at `http://localhost:3000` — open in your browser
+- **OTLP receiver** at `http://localhost:4318` — where agents send telemetry
 
-### 2. Configure your AI coding agent
+### Step 2: Connect your AI coding agent
 
-#### Claude Code
+#### Claude Code (recommended)
+
+Set these environment variables before running Claude Code:
 
 ```bash
 export CLAUDE_CODE_ENABLE_TELEMETRY=1
@@ -43,51 +48,83 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 claude
 ```
 
+**Tip:** Add these to your `.bashrc` / `.zshrc` so telemetry is always on:
+
+```bash
+# ~/.zshrc
+export CLAUDE_CODE_ENABLE_TELEMETRY=1
+export OTEL_METRICS_EXPORTER=otlp
+export OTEL_LOGS_EXPORTER=otlp
+export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+```
+
+**What gets tracked:** tokens (input/output/cache), cost per request, model, latency, tool usage (Bash, Read, Write, etc.), errors.
+
 #### OpenCode
 
-One command to set up — no third-party plugins needed:
+One command — no manual config needed:
 
 ```bash
 cd /your/project
 npx ai-code-monitor setup-opencode
+opencode
 ```
 
-This installs a lightweight telemetry plugin into `.opencode/plugin/` and configures `opencode.jsonc` automatically. Then just run `opencode` — metrics flow to `localhost:4318`.
+This installs a lightweight telemetry plugin into `.opencode/plugin/` and configures `opencode.jsonc` automatically.
+
+**What gets tracked:** tool executions, tool latency, lines of code added/deleted, permissions, and token usage via AI SDK trace export.
 
 **Custom endpoint:**
 
 ```bash
-npx ai-code-monitor setup-opencode --endpoint http://localhost:9999
+npx ai-code-monitor setup-opencode --endpoint http://myserver:4318
 ```
+
+#### Codex CLI
+
+Codex CLI has OTel infrastructure built into its Rust binary. Run the setup command to configure it:
+
+```bash
+npx ai-code-monitor setup-codex
+codex
+```
+
+This writes OTLP HTTP export config to `~/.codex/config.toml`.
+
+> **Note:** Codex CLI v0.120.0 currently filters OTel exports to internal analytics (Statsig). Full OTLP export support is expected in a future release. The setup command and metric handling are ready — it will work automatically once OpenAI enables public OTLP export.
 
 #### Any OTel-compatible tool
 
-Point OTLP HTTP export to `http://localhost:4318`:
+Any tool that exports OTLP over HTTP works out of the box:
 
 ```bash
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 ```
 
-### 3. View the dashboard
+### Step 3: View the dashboard
 
-Open `http://localhost:3000` in your browser. Metrics appear in real-time as you use your AI coding agent.
+Open `http://localhost:3000` in your browser. Metrics appear in real-time as you use your AI coding agent. The dashboard auto-updates every 5 seconds via WebSocket.
+
+---
 
 ## Dashboard
 
-The dashboard shows:
-
 | Section | What it shows |
 |---|---|
-| **Summary Cards** | Total tokens (in/out), cost, requests, errors, avg latency |
+| **Summary Cards** | Total tokens (in/out), cost, requests, errors, avg latency, lines changed |
 | **Token Chart** | Token usage over time (1-minute buckets) |
 | **Cost Chart** | Cost accumulation over time |
 | **Model Breakdown** | Doughnut chart of requests by model |
-| **Tool Breakdown** | Doughnut chart of tool executions |
-| **Live Feed** | Real-time table of recent requests |
-| **Logs Panel** | Collapsible log stream from connected services |
+| **Tool Breakdown** | Doughnut chart of tool executions with avg latency |
+| **Service Breakdown** | Per-service stats (Claude Code, OpenCode, etc.) |
+| **Live Feed** | Real-time table of recent requests with model, provider, tokens, cost |
+| **Logs Panel** | Collapsible log stream from all connected services |
 
-## CLI Options
+---
+
+## CLI Reference
 
 ```
 Usage: ai-code-monitor [options] [command]
@@ -101,32 +138,106 @@ Options:
 
 Commands:
   setup-opencode            Install OpenCode telemetry plugin in current project
+  setup-codex               Configure Codex CLI OTel export in ~/.codex/config.toml
 ```
 
 ### Examples
 
 ```bash
+# Default — dashboard on 3000, OTLP on 4318
+npx ai-code-monitor
+
 # Custom ports
 npx ai-code-monitor --port 8080 --otlp-port 9999
 
 # Don't auto-open browser
 npx ai-code-monitor --no-open
 
-# Set up OpenCode monitoring in your project (one-time)
+# Set up OpenCode monitoring (one-time, per project)
 cd /your/project && npx ai-code-monitor setup-opencode
+
+# Set up Codex CLI monitoring (one-time, writes to ~/.codex/config.toml)
+npx ai-code-monitor setup-codex
 ```
+
+---
+
+## Compatibility
+
+| Tool | Status | Setup | What's tracked |
+|---|---|---|---|
+| **Claude Code** | Full support | Env vars | Tokens, cost, model, latency, tools, errors |
+| **OpenCode** | Full support | `npx ai-code-monitor setup-opencode` | Tool executions, LOC changes, permissions, tokens via AI SDK |
+| **Codex CLI** | Config ready | `npx ai-code-monitor setup-codex` | Waiting on OpenAI to enable public OTLP export |
+| **Any OTel tool** | Full support | `OTEL_EXPORTER_OTLP_ENDPOINT` env var | Whatever metrics/logs/traces the tool exports |
+
+### Provider auto-detection
+
+ai-code-monitor automatically detects your cloud provider from model IDs:
+
+| Pattern | Detected Provider |
+|---|---|
+| `claude-opus-4-6` (no date suffix) | Amazon Bedrock |
+| `claude-opus-4-6-20250514` (with date) | Anthropic (direct API) |
+| `global.anthropic.*`, `us.*`, `eu.*`, ARN | Amazon Bedrock |
+| `gpt-*`, `o1*`, `o3*`, `o4*` | OpenAI |
+| `gemini-*` | Google |
+
+---
+
+## REST API
+
+The monitor exposes a JSON API for programmatic access:
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/snapshot` | Full metrics snapshot (tokens, cost, latency, breakdowns) |
+| `GET /api/requests?limit=N` | Recent request events |
+| `GET /api/logs?limit=N` | Recent log entries |
+| `GET /api/config` | Monitor configuration |
+| `GET /health` | Health check |
+
+### OTLP Endpoints (for agents)
+
+| Endpoint | Description |
+|---|---|
+| `POST /v1/metrics` | Receive OTel metrics |
+| `POST /v1/logs` | Receive OTel logs |
+| `POST /v1/traces` | Receive OTel traces |
+
+---
+
+## Roadmap
+
+### Team Dashboard (coming next)
+
+We're building **team-level monitoring** so engineering leads and managers can see usage across the entire team:
+
+- **Per-developer breakdown** — See which team members are using AI agents, how much they're spending, and what models they prefer
+- **Team cost tracking** — Aggregate cost dashboard with daily/weekly/monthly rollups
+- **Shared dashboard** — One URL the whole team can access to view real-time and historical usage
+- **Usage alerts** — Get notified when team spend exceeds thresholds
+- **Project-level metrics** — Break down costs by project/repository, not just by person
+
+If you're interested in the team dashboard, star the repo and [open an issue](https://github.com/bhaveshopss/ai-code-monitor/issues) with your use case.
+
+---
 
 ## Supported Telemetry Formats
 
-### OTLP Logs (Claude Code)
+<details>
+<summary>OTLP Logs (Claude Code)</summary>
 
 | Log Event | Extracted Data |
 |---|---|
-| `claude_code.api_request` | tokens, cost, model, latency |
-| `claude_code.api_error` | error count |
-| `claude_code.tool_result` | tool usage |
+| `claude_code.api_request` | tokens, cost, model, latency, cache tokens |
+| `claude_code.api_error` | error count, model, status code |
+| `claude_code.tool_result` | tool name, duration, success/failure |
 
-### OTLP Metrics (OpenCode plugin)
+</details>
+
+<details>
+<summary>OTLP Metrics (OpenCode plugin)</summary>
 
 | Metric | Type | Description |
 |---|---|---|
@@ -134,9 +245,25 @@ cd /your/project && npx ai-code-monitor setup-opencode
 | `opencode.tool.duration` | Histogram | Tool execution latency (ms) |
 | `opencode.tool.loc.added` | Counter | Lines of code added |
 | `opencode.tool.loc.deleted` | Counter | Lines of code deleted |
-| `opencode.permission.requests` | Counter | Permission ask/accept/reject |
 
-### OTLP Metrics (gen_ai.* semantic conventions)
+</details>
+
+<details>
+<summary>OTLP Logs + Metrics (Codex CLI — when enabled)</summary>
+
+| Event / Metric | Type | Description |
+|---|---|---|
+| `codex.api_request` | Log / Counter | API requests with token counts, model, latency |
+| `codex.sse_event` | Log | SSE events with token counts |
+| `codex.tool.call` | Counter | Tool call count |
+| `codex.tool.call.duration_ms` | Histogram | Tool call latency (ms) |
+| `codex.turn.token_usage` | Counter | Per-turn token usage |
+| `codex.api_request.duration_ms` | Histogram | API request latency (ms) |
+
+</details>
+
+<details>
+<summary>OTLP Metrics (gen_ai.* semantic conventions)</summary>
 
 | Metric | Type | Description |
 |---|---|---|
@@ -147,42 +274,22 @@ cd /your/project && npx ai-code-monitor setup-opencode
 | `llm.request.count` | Counter | Request count |
 | `tool.execution.count` | Counter | Tool invocations |
 
-### OTLP Traces
+</details>
+
+<details>
+<summary>OTLP Traces</summary>
 
 Any OTLP trace with `gen_ai.*` attributes is automatically parsed for token counts, model, provider, and latency.
 
-## OTLP Endpoints
+</details>
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `POST /v1/metrics` | POST | Receive OTel metrics |
-| `POST /v1/logs` | POST | Receive OTel logs |
-| `POST /v1/traces` | POST | Receive OTel traces |
-| `GET /health` | GET | Health check |
-
-## REST API
-
-| Endpoint | Description |
-|---|---|
-| `GET /api/snapshot` | Full metrics snapshot |
-| `GET /api/requests?limit=N` | Recent request events |
-| `GET /api/logs?limit=N` | Recent log entries |
-| `GET /api/config` | Monitor configuration |
-
-## Compatibility
-
-| Tool | Status | Notes |
-|---|---|---|
-| **Claude Code** | Works | Native OTel log export with token/cost data |
-| **OpenCode** | Works | Built-in plugin via `npx ai-code-monitor setup-opencode` — tracks tool usage, LOC, permissions |
-| **Codex (OpenAI)** | Ready when supported | Codex Rust binary has OTel support; npm `@openai/codex` does not yet export telemetry |
-| **Any OTel tool** | Works | Any app exporting OTLP metrics/logs/traces over HTTP |
+---
 
 ## Tech Stack
 
 - **TypeScript** + Node.js
 - **Express** — HTTP server
-- **WebSocket (ws)** — Real-time dashboard updates
+- **WebSocket (ws)** — Real-time dashboard updates (5s interval)
 - **Chart.js** — Charts via CDN
 - **OpenTelemetry** — Standard OTLP HTTP protocol
 
