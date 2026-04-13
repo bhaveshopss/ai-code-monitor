@@ -139,6 +139,7 @@ Open `http://localhost:3000` in your browser. Metrics appear in real-time as you
 
 ## Dashboard
 
+
 | Section | What it shows |
 |---|---|
 | **Summary Cards** | Total tokens (in/out), cost, requests, errors, avg latency, lines changed |
