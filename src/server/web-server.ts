@@ -91,8 +91,11 @@ export async function startServers(store: MetricsStore, options: ServerOptions):
     });
   });
 
-  // Fallback to index.html for SPA
-  dashboardApp.get("*", (_req, res) => {
+  // Fallback to index.html for SPA (exclude /ws and /api paths)
+  dashboardApp.get("*", (req, res, next) => {
+    if (req.path === "/ws" || req.path.startsWith("/api/")) {
+      return next();
+    }
     res.sendFile(path.join(dashboardDir, "index.html"));
   });
 

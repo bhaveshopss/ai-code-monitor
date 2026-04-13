@@ -34,7 +34,9 @@ export function createWebSocketServer(server: Server, store: MetricsStore) {
 
   wss.on("connection", (ws: WebSocket) => {
     clientCount++;
-    console.log(`[WS] Client connected (${clientCount} total)`);
+    if (clientCount === 1) {
+      console.log("[WS] Dashboard client connected");
+    }
 
     // Mark client as alive for ping/pong
     (ws as any).isAlive = true;
@@ -51,7 +53,10 @@ export function createWebSocketServer(server: Server, store: MetricsStore) {
 
     ws.on("close", (code, reason) => {
       clientCount--;
-      console.log(`[WS] Client disconnected (${clientCount} total) code=${code} reason=${reason?.toString() || ""}`);
+      // Only log unexpected disconnects (1000=normal, 1001=going away are expected)
+      if (code !== 1000 && code !== 1001) {
+        console.log(`[WS] Client disconnected (${clientCount} total) code=${code} reason=${reason?.toString() || ""}`);
+      }
     });
 
     ws.on("error", (err) => {
