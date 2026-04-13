@@ -23,22 +23,11 @@ STEP 3: Open dashboard
 http://localhost:3000
 
 
-STEP 2b: Configure OpenCode (with telemetry plugin)
+STEP 2b: Configure OpenCode (one command)
 -----------------------------------------
 
-# Install the telemetry plugin
 cd /your/project
-mkdir -p .opencode/plugin
-git clone https://github.com/pai4451/opencode-telemetry-plugin .opencode/plugin/opencode-telemetry
-cd .opencode/plugin/opencode-telemetry && npm install && npm run build && cd -
-
-# Add to .opencode/opencode.jsonc:
-# {
-#   "plugin": ["file://.opencode/plugin/opencode-telemetry"],
-#   "experimental": { "openTelemetry": true }
-# }
-
-# Run OpenCode (telemetry auto-exports to localhost:4318)
+npx ai-code-monitor setup-opencode
 opencode
 
 
@@ -46,7 +35,7 @@ opencode
   NOTES
 ============================================
 
-- OpenCode: Requires the community telemetry plugin.
+- OpenCode: Built-in plugin, set up with: npx ai-code-monitor setup-opencode
   Tracks tool executions, lines of code, and permissions (not tokens/cost).
 
 - Codex (npm @openai/codex): Does NOT support OTel export yet.

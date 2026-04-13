@@ -43,27 +43,22 @@ export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 claude
 ```
 
-#### OpenCode (with telemetry plugin)
+#### OpenCode
 
-Install the [opencode-telemetry-plugin](https://github.com/pai4451/opencode-telemetry-plugin):
+One command to set up — no third-party plugins needed:
 
 ```bash
 cd /your/project
-mkdir -p .opencode/plugin
-git clone https://github.com/pai4451/opencode-telemetry-plugin .opencode/plugin/opencode-telemetry
-cd .opencode/plugin/opencode-telemetry && npm install && npm run build && cd -
+npx ai-code-monitor setup-opencode
 ```
 
-Add to `.opencode/opencode.jsonc`:
+This installs a lightweight telemetry plugin into `.opencode/plugin/` and configures `opencode.jsonc` automatically. Then just run `opencode` — metrics flow to `localhost:4318`.
 
-```jsonc
-{
-  "plugin": ["file://.opencode/plugin/opencode-telemetry"],
-  "experimental": { "openTelemetry": true }
-}
+**Custom endpoint:**
+
+```bash
+npx ai-code-monitor setup-opencode --endpoint http://localhost:9999
 ```
-
-Then run `opencode` — telemetry auto-exports to `localhost:4318`.
 
 #### Any OTel-compatible tool
 
@@ -95,7 +90,7 @@ The dashboard shows:
 ## CLI Options
 
 ```
-Usage: ai-code-monitor [options]
+Usage: ai-code-monitor [options] [command]
 
 Options:
   -p, --port <number>       Dashboard port (default: 3000)
@@ -103,6 +98,9 @@ Options:
   --no-open                 Don't auto-open browser
   -V, --version             Show version
   -h, --help                Show help
+
+Commands:
+  setup-opencode            Install OpenCode telemetry plugin in current project
 ```
 
 ### Examples
@@ -113,6 +111,9 @@ npx ai-code-monitor --port 8080 --otlp-port 9999
 
 # Don't auto-open browser
 npx ai-code-monitor --no-open
+
+# Set up OpenCode monitoring in your project (one-time)
+cd /your/project && npx ai-code-monitor setup-opencode
 ```
 
 ## Supported Telemetry Formats
@@ -173,7 +174,7 @@ Any OTLP trace with `gen_ai.*` attributes is automatically parsed for token coun
 | Tool | Status | Notes |
 |---|---|---|
 | **Claude Code** | Works | Native OTel log export with token/cost data |
-| **OpenCode** | Works (with plugin) | Via [opencode-telemetry-plugin](https://github.com/pai4451/opencode-telemetry-plugin) — tracks tool usage, LOC, permissions |
+| **OpenCode** | Works | Built-in plugin via `npx ai-code-monitor setup-opencode` — tracks tool usage, LOC, permissions |
 | **Codex (OpenAI)** | Ready when supported | Codex Rust binary has OTel support; npm `@openai/codex` does not yet export telemetry |
 | **Any OTel tool** | Works | Any app exporting OTLP metrics/logs/traces over HTTP |
 
