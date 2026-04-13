@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { execFileSync } from "node:child_process";
 import { success, info, warn } from "./utils/logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -43,11 +44,44 @@ export async function setupOpenCode(projectDir: string, endpoint: string) {
   };
   writeFileSync(join(pluginDir, "package.json"), JSON.stringify(pluginPkg, null, 2) + "\n");
 
-  // 4. Create or update .opencode/opencode.jsonc
+  // 4. Create or update .opencode/package.json with OTel deps for tracing
+  const opencodePkgPath = join(dir, ".opencode", "package.json");
+  const opencodePkg: Record<string, any> = { dependencies: {} };
+
+  if (existsSync(opencodePkgPath)) {
+    try {
+      const existing = JSON.parse(readFileSync(opencodePkgPath, "utf-8"));
+      Object.assign(opencodePkg, existing);
+      if (!opencodePkg.dependencies) opencodePkg.dependencies = {};
+    } catch {
+      // ignore parse errors, overwrite
+    }
+  }
+
+  // OTel packages needed for AI SDK trace export (tokens, model, latency)
+  opencodePkg.dependencies["@opencode-ai/plugin"] = opencodePkg.dependencies["@opencode-ai/plugin"] || "1.4.1";
+  opencodePkg.dependencies["@opentelemetry/api"] = "^1.9.0";
+  opencodePkg.dependencies["@opentelemetry/sdk-trace-base"] = "^1.30.0";
+  opencodePkg.dependencies["@opentelemetry/resources"] = "^1.30.0";
+
+  writeFileSync(opencodePkgPath, JSON.stringify(opencodePkg, null, 2) + "\n");
+
+  info("Installing OTel dependencies in .opencode/ ...");
+  try {
+    execFileSync("npm", ["install", "--no-fund", "--no-audit"], {
+      cwd: join(dir, ".opencode"),
+      stdio: "pipe",
+    });
+    success("OTel dependencies installed — AI SDK traces will export token/model data");
+  } catch {
+    warn("npm install failed in .opencode/ — tracing may not work. Run manually: cd .opencode && npm install");
+  }
+
+  // 5. Create or update .opencode/opencode.jsonc
   const configPath = join(dir, ".opencode", "opencode.jsonc");
-  // Use absolute file:// URI so OpenCode resolves the plugin regardless of cwd
+  // Use absolute file:// URI with proper encoding (handles spaces, special chars)
   const pluginAbsPath = join(dir, ".opencode", "plugin", "ai-code-monitor-telemetry");
-  const pluginRef = "file://" + pluginAbsPath;
+  const pluginRef = pathToFileURL(pluginAbsPath).href;
   let config: Record<string, any> = {};
 
   if (existsSync(configPath)) {
@@ -90,6 +124,6 @@ export async function setupOpenCode(projectDir: string, endpoint: string) {
     console.log("    Terminal 2:  opencode");
   }
   console.log("");
-  console.log("  The dashboard will show tool executions, LOC changes, and permissions.");
+  console.log("  The dashboard will show token usage, costs, tool executions, and LOC changes.");
   console.log("");
 }

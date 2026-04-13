@@ -168,6 +168,71 @@ const MS_UNIT_HISTOGRAMS = new Set([
   "opencode.tool.duration",            // OpenCode plugin tool duration (ms)
 ]);
 
+// --- Provider inference from model ID ---
+// When the telemetry doesn't include an explicit provider, infer from model name patterns.
+
+// Provider values that are actually tool/service names, not cloud providers
+const NON_PROVIDER_VALUES = new Set([
+  "opencode", "claude-code", "claude_code", "codex", "codex-cli",
+]);
+
+function inferProvider(model: string, explicitProvider: string): string {
+  // If the "provider" is actually the tool name, ignore it and infer from model
+  if (explicitProvider && !NON_PROVIDER_VALUES.has(explicitProvider.toLowerCase())) {
+    return normalizeProvider(explicitProvider);
+  }
+  if (!model) return "";
+
+  const m = model.toLowerCase();
+
+  // Amazon Bedrock model IDs: contain region prefixes, ARN patterns, or vendor prefixes
+  // e.g. "global.anthropic.claude-*", "us.amazon.nova-*", "arn:aws:bedrock:*"
+  if (
+    m.startsWith("global.") ||
+    m.startsWith("us.") || m.startsWith("eu.") || m.startsWith("ap.") ||
+    m.includes("arn:aws:bedrock") ||
+    /^[a-z]{2}\.[a-z]/.test(m)  // region.vendor pattern like "us.anthropic.*"
+  ) {
+    return "Amazon Bedrock";
+  }
+
+  // OpenAI / Azure OpenAI
+  if (m.startsWith("gpt-") || m.startsWith("o1") || m.startsWith("o3") || m.startsWith("o4")) return "OpenAI";
+  if (m.includes("azure")) return "Azure OpenAI";
+
+  // Anthropic: direct API model IDs always have a date suffix (e.g. claude-opus-4-6-20250514).
+  // Bedrock cross-region inference profiles use short aliases without dates (e.g. claude-opus-4-6).
+  if (m.startsWith("claude-")) {
+    // Check for date suffix pattern: -YYYYMMDD at the end
+    if (/\-\d{8}$/.test(m)) return "Anthropic";
+    // No date suffix → Bedrock inference profile alias
+    return "Amazon Bedrock";
+  }
+
+  // Google
+  if (m.startsWith("gemini-") || m.startsWith("models/gemini")) return "Google";
+
+  // Mistral
+  if (m.startsWith("mistral") || m.startsWith("codestral")) return "Mistral";
+
+  // Groq
+  if (m.includes("groq") || m.startsWith("llama-") || m.startsWith("mixtral-")) return "Groq";
+
+  return "";
+}
+
+function normalizeProvider(provider: string): string {
+  const p = provider.toLowerCase().trim();
+  if (p === "anthropic" || p === "claude") return "Anthropic";
+  if (p === "openai" || p === "chatgpt") return "OpenAI";
+  if (p === "bedrock" || p === "amazon-bedrock" || p === "aws" || p === "amazon_bedrock") return "Amazon Bedrock";
+  if (p === "google" || p === "vertex" || p === "google-vertex") return "Google";
+  if (p === "azure" || p === "azure-openai") return "Azure OpenAI";
+  if (p === "mistral") return "Mistral";
+  if (p === "groq") return "Groq";
+  return provider; // return as-is if not recognized
+}
+
 // --- Ring buffer ---
 
 class RingBuffer<T> {
@@ -329,7 +394,8 @@ export class MetricsStore {
       const value = getNumericValue(point);
       const attrs = extractAttributes(point.attributes);
       const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? attrs["llm.model"] ?? "";
-      const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? attrs["llm.provider"] ?? "";
+      const rawProvider = attrs["provider"] ?? attrs["gen_ai.system"] ?? attrs["llm.provider"] ?? "";
+      const provider = inferProvider(model, rawProvider);
       const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? "";
       const tokenType = attrs["gen_ai.token.type"] ?? attrs["token.type"] ?? "";
 
@@ -406,7 +472,8 @@ export class MetricsStore {
     for (const point of histPoints) {
       const attrs = extractAttributes(point.attributes);
       const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? "";
-      const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "";
+      const rawProvider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "";
+      const provider = inferProvider(model, rawProvider);
       const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? "";
       const isSuccess = attrs["success"] !== "false";
 
@@ -606,7 +673,8 @@ export class MetricsStore {
         attrs["duration_ms"] ?? attrs["latency_ms"] ?? attrs["duration"] ?? attrs["response_time"]
       );
       const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? attrs["llm.model"] ?? "";
-      const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? attrs["llm.provider"] ?? "";
+      const rawProvider = attrs["provider"] ?? attrs["gen_ai.system"] ?? attrs["llm.provider"] ?? "";
+      const provider = inferProvider(model, rawProvider);
       const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? "";
       const isError = (attrs["status"] ?? attrs["error"] ?? "").toLowerCase() === "error" ||
                       attrs["success"] === "false" ||
@@ -650,7 +718,8 @@ export class MetricsStore {
       const reasoningTokens = this.parseNum(attrs["reasoning_token_count"]);
       const latencyMs = this.parseNum(attrs["duration_ms"] ?? attrs["duration"]);
       const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? "";
-      const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "openai";
+      const rawProvider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "openai";
+      const provider = inferProvider(model, rawProvider);
 
       if (tokensIn > 0 || tokensOut > 0) {
         this.totalTokensIn += tokensIn + cachedTokens;
@@ -692,7 +761,8 @@ export class MetricsStore {
     if (eventName.includes("api_error") || eventName.includes("api.error")) {
       this.totalErrors += 1;
       const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? "";
-      const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "";
+      const rawProvider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "";
+      const provider = inferProvider(model, rawProvider);
       if (model || provider) {
         this.updateModelMetrics(model, provider, { errors: 1 });
       }
@@ -778,7 +848,8 @@ export class MetricsStore {
           if (durationMs <= 0) continue;
 
           const model = attrs["model"] ?? attrs["gen_ai.request.model"] ?? "";
-          const provider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "";
+          const rawProvider = attrs["provider"] ?? attrs["gen_ai.system"] ?? "";
+          const provider = inferProvider(model, rawProvider);
           const tool = attrs["tool"] ?? attrs["tool.name"] ?? attrs["tool_name"] ?? "";
           const tokensIn = this.parseNum(
             attrs["gen_ai.usage.input_tokens"] ?? attrs["input_tokens"] ??
