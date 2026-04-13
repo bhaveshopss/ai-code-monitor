@@ -1,6 +1,6 @@
 # ai-code-monitor
 
-Real-time monitoring dashboard for AI coding agents. One command to track tokens, costs, and latency for **Claude Code**, **Codex**, and any OpenTelemetry-compatible AI tool.
+Real-time monitoring dashboard for AI coding agents. One command to track tokens, costs, and latency for **Claude Code** and any OpenTelemetry-compatible AI tool.
 
 ```bash
 npx ai-code-monitor
@@ -14,9 +14,9 @@ Teams using AI coding assistants have zero visibility into what they're spending
 
 - **OTLP HTTP Receiver** — Standard OpenTelemetry endpoint on port 4318
 - **Real-time Web Dashboard** — Token usage, costs, latency charts, live request feed
-- **Multi-agent support** — Works with Claude Code, Codex (OpenAI), and any OTel-compatible tool
 - **Multi-model tracking** — Breaks down metrics by model, provider, and tool
 - **Zero config** — Just run `npx ai-code-monitor` and point your AI CLI at it
+- **Works with Claude Code** — Claude Code has built-in OTel telemetry support
 
 ## Quick Start
 
@@ -42,23 +42,6 @@ export OTEL_EXPORTER_OTLP_PROTOCOL=http/json
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 claude
 ```
-
-#### Codex (OpenAI)
-
-Add to `~/.codex/config.toml`:
-
-```toml
-[otel.exporter]
-otlp-http = { endpoint = "http://localhost:4318", protocol = "json" }
-
-[otel.trace_exporter]
-otlp-http = { endpoint = "http://localhost:4318", protocol = "json" }
-
-[otel.metrics_exporter]
-otlp-http = { endpoint = "http://localhost:4318", protocol = "json" }
-```
-
-Then run `codex` as usual.
 
 #### Any OTel-compatible tool
 
@@ -112,30 +95,24 @@ npx ai-code-monitor --no-open
 
 ## Supported Telemetry Formats
 
-### OTLP Metrics (Codex, gen_ai.* conventions)
+### OTLP Logs (Claude Code)
 
-| Metric | Type | Source |
+| Log Event | Extracted Data |
+|---|---|
+| `claude_code.api_request` | tokens, cost, model, latency |
+| `claude_code.api_error` | error count |
+| `claude_code.tool_result` | tool usage |
+
+### OTLP Metrics (gen_ai.* semantic conventions)
+
+| Metric | Type | Description |
 |---|---|---|
-| `codex.api_request` | Counter | Codex API request count |
-| `codex.api_request.duration_ms` | Histogram | Codex API latency |
-| `codex.tool.call` | Counter | Codex tool invocations |
-| `codex.tool.call.duration_ms` | Histogram | Codex tool latency |
-| `codex.turn.token_usage` | Counter | Codex per-turn token usage |
-| `gen_ai.client.token.usage` | Histogram | OTel GenAI semantic conventions |
-| `gen_ai.client.operation.duration` | Histogram | OTel GenAI semantic conventions |
-| `llm.tokens.input` / `llm.tokens.output` | Counter | Generic LLM metrics |
-| `llm.cost.total` | Counter | Generic cost tracking |
-
-### OTLP Logs (Claude Code, Codex)
-
-| Log Event | Source | Extracted Data |
-|---|---|---|
-| `claude_code.api_request` | Claude Code | tokens, cost, model, latency |
-| `claude_code.api_error` | Claude Code | error count |
-| `claude_code.tool_result` | Claude Code | tool usage |
-| `codex.api_request` | Codex | latency, model, status |
-| `codex.sse_event` | Codex | token counts (input/output/cached/reasoning) |
-| `codex.tool_result` | Codex | tool usage, duration |
+| `gen_ai.client.token.usage` | Histogram | Input/output token counts |
+| `gen_ai.client.operation.duration` | Histogram | Request latency |
+| `llm.tokens.input` / `llm.tokens.output` | Counter | Token counters |
+| `llm.cost.total` | Counter | Cost in USD |
+| `llm.request.count` | Counter | Request count |
+| `tool.execution.count` | Counter | Tool invocations |
 
 ### OTLP Traces
 
@@ -159,15 +136,14 @@ Any OTLP trace with `gen_ai.*` attributes is automatically parsed for token coun
 | `GET /api/logs?limit=N` | Recent log entries |
 | `GET /api/config` | Monitor configuration |
 
-## Supported Tools
+## Compatibility
 
-| Tool | Support | How |
+| Tool | Status | Notes |
 |---|---|---|
-| **Claude Code** | Native OTel logs | Set `CLAUDE_CODE_ENABLE_TELEMETRY=1` + OTLP env vars |
-| **Codex (OpenAI)** | Native OTel metrics/logs/traces | Configure `~/.codex/config.toml` |
-| **Any OTel tool** | OTLP HTTP | Point `OTEL_EXPORTER_OTLP_ENDPOINT` at the monitor |
-
-> **Note:** OpenCode/Crush do not currently export OpenTelemetry data and cannot be monitored directly.
+| **Claude Code** | Works | Native OTel log export with token/cost data |
+| **Codex (OpenAI)** | Ready when supported | Codex Rust binary has OTel support; npm `@openai/codex` does not yet export telemetry |
+| **OpenCode / Crush** | Not supported | No OTel export — uses local SQLite / PostHog only |
+| **Any OTel tool** | Works | Any app exporting OTLP metrics/logs/traces over HTTP |
 
 ## Tech Stack
 
