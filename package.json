@@ -1,6 +1,6 @@
 {
   "name": "ai-code-monitor",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Real-time monitoring dashboard for AI coding agents. One command to track tokens, costs, and latency for Claude Code, Codex CLI, OpenCode, and more.",
   "bin": {
     "ai-code-monitor": "./dist/bin/cli.js"

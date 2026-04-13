@@ -1,17 +1,17 @@
 // AI Code Monitor — Dashboard Client
 
 const CHART_COLORS = [
-  "#58a6ff", "#3fb950", "#bc8cff", "#d29922",
-  "#f85149", "#39d2c0", "#f778ba", "#79c0ff",
+  "#00F5C4", "#00B4D8", "#A78BFA", "#FFB547",
+  "#FF5A5A", "#F472B6", "#38BDF8", "#7DD3FC",
 ];
 
 // Service name → display label and color
 const SERVICE_STYLES = {
-  "claude-code":  { label: "Claude Code", color: "#bc8cff" },
-  "claude_code":  { label: "Claude Code", color: "#bc8cff" },
-  "opencode":     { label: "OpenCode",    color: "#3fb950" },
-  "codex":        { label: "Codex",       color: "#58a6ff" },
-  "codex-cli":    { label: "Codex",       color: "#58a6ff" },
+  "claude-code":  { label: "Claude Code", color: "#A78BFA" },
+  "claude_code":  { label: "Claude Code", color: "#A78BFA" },
+  "opencode":     { label: "OpenCode",    color: "#00F5C4" },
+  "codex":        { label: "Codex",       color: "#00B4D8" },
+  "codex-cli":    { label: "Codex",       color: "#00B4D8" },
 };
 
 function getServiceStyle(name) {
@@ -87,15 +87,28 @@ const chartDefaults = {
   animation: { duration: 300 },
   plugins: {
     legend: { display: false },
+    tooltip: {
+      backgroundColor: "rgba(14,22,38,0.92)",
+      borderColor: "rgba(255,255,255,0.06)",
+      borderWidth: 1,
+      titleColor: "#e8edf5",
+      bodyColor: "#8892a4",
+      titleFont: { family: "'JetBrains Mono', monospace", size: 11 },
+      bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
+      padding: 10,
+      cornerRadius: 8,
+    },
   },
   scales: {
     x: {
-      grid: { color: "rgba(48,54,61,0.5)" },
-      ticks: { color: "#8b949e", font: { size: 10 } },
+      grid: { color: "rgba(255,255,255,0.04)" },
+      ticks: { color: "#4a5268", font: { family: "'JetBrains Mono', monospace", size: 10 } },
+      border: { color: "rgba(255,255,255,0.06)" },
     },
     y: {
-      grid: { color: "rgba(48,54,61,0.5)" },
-      ticks: { color: "#8b949e", font: { size: 10 } },
+      grid: { color: "rgba(255,255,255,0.04)" },
+      ticks: { color: "#4a5268", font: { family: "'JetBrains Mono', monospace", size: 10 } },
+      border: { color: "rgba(255,255,255,0.06)" },
       beginAtZero: true,
     },
   },
@@ -110,11 +123,13 @@ function initCharts() {
       datasets: [{
         label: "Tokens",
         data: [],
-        borderColor: "#58a6ff",
-        backgroundColor: "rgba(88,166,255,0.1)",
+        borderColor: "#00F5C4",
+        backgroundColor: "rgba(0,245,196,0.08)",
         fill: true,
-        tension: 0.3,
-        pointRadius: 2,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHoverBackgroundColor: "#00F5C4",
         borderWidth: 2,
       }],
     },
@@ -132,11 +147,13 @@ function initCharts() {
       datasets: [{
         label: "Cost ($)",
         data: [],
-        borderColor: "#3fb950",
-        backgroundColor: "rgba(63,185,80,0.1)",
+        borderColor: "#00B4D8",
+        backgroundColor: "rgba(0,180,216,0.08)",
         fill: true,
-        tension: 0.3,
-        pointRadius: 2,
+        tension: 0.4,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHoverBackgroundColor: "#00B4D8",
         borderWidth: 2,
       }],
     },
@@ -155,6 +172,19 @@ function initCharts() {
     },
   });
 
+  // Doughnut tooltip style
+  const doughnutTooltip = {
+    backgroundColor: "rgba(14,22,38,0.92)",
+    borderColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    titleColor: "#e8edf5",
+    bodyColor: "#8892a4",
+    titleFont: { family: "'JetBrains Mono', monospace", size: 11 },
+    bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
+    padding: 10,
+    cornerRadius: 8,
+  };
+
   const modelCtx = document.getElementById("modelChart").getContext("2d");
   modelChart = new Chart(modelCtx, {
     type: "doughnut",
@@ -163,15 +193,16 @@ function initCharts() {
       datasets: [{
         data: [],
         backgroundColor: CHART_COLORS,
-        borderWidth: 0,
+        borderWidth: 2,
+        borderColor: "rgba(6,8,13,0.8)",
       }],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 300 },
-      plugins: { legend: { display: false } },
-      cutout: "65%",
+      plugins: { legend: { display: false }, tooltip: doughnutTooltip },
+      cutout: "68%",
     },
   });
 
@@ -183,15 +214,16 @@ function initCharts() {
       datasets: [{
         data: [],
         backgroundColor: CHART_COLORS.slice().reverse(),
-        borderWidth: 0,
+        borderWidth: 2,
+        borderColor: "rgba(6,8,13,0.8)",
       }],
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       animation: { duration: 300 },
-      plugins: { legend: { display: false } },
-      cutout: "65%",
+      plugins: { legend: { display: false }, tooltip: doughnutTooltip },
+      cutout: "68%",
     },
   });
 }
@@ -213,6 +245,23 @@ function updateCards(data) {
   document.getElementById("p99Latency").textContent = "p99: " + formatLatency(data.p99LatencyMs);
 
   document.getElementById("uptime").textContent = formatUptime(data.uptimeMs);
+
+  // Cost subtitle — show tokens total
+  const costSubEl = document.getElementById("costSub");
+  if (costSubEl) {
+    const totalTok = (data.totalTokensIn || 0) + (data.totalTokensOut || 0);
+    costSubEl.textContent = totalTok > 0
+      ? formatNumber(totalTok) + " tokens total"
+      : "--";
+  }
+
+  // Animate hero ring based on cost (arbitrary max $10 for full circle)
+  const heroRing = document.getElementById("heroRing");
+  if (heroRing) {
+    const circumference = 339.29;
+    const pct = Math.min((data.totalCost || 0) / 10, 1);
+    heroRing.setAttribute("stroke-dashoffset", String(circumference * (1 - pct)));
+  }
 
   const totalLoc = (data.totalLinesAdded || 0) + (data.totalLinesDeleted || 0);
   document.getElementById("linesChanged").textContent = formatNumber(totalLoc);
@@ -328,7 +377,7 @@ function updateServiceCards(byService) {
     const style = getServiceStyle(name);
 
     const card = createEl("div", "service-card");
-    card.style.borderLeftColor = style.color;
+    card.style.setProperty("--svc-color", style.color);
 
     const header = createEl("div", "service-card-header");
     const dot = createEl("span", "service-dot");
@@ -398,11 +447,9 @@ function connectWebSocket() {
   ws.onopen = () => {
     wsReconnectDelay = 1000; // Reset backoff on successful connect
     const badge = document.getElementById("connectionStatus");
-    badge.className = "status-badge status-connected";
-    clearChildren(badge);
-    const dot = createEl("span", "status-dot");
-    badge.appendChild(dot);
-    badge.appendChild(document.createTextNode(" Connected"));
+    badge.className = "status-pill status-connected";
+    const label = badge.querySelector(".status-label");
+    if (label) label.textContent = "Connected";
     console.log("[WS] Connected");
   };
 
@@ -421,11 +468,9 @@ function connectWebSocket() {
 
   ws.onclose = () => {
     const badge = document.getElementById("connectionStatus");
-    badge.className = "status-badge status-disconnected";
-    clearChildren(badge);
-    const dot = createEl("span", "status-dot");
-    badge.appendChild(dot);
-    badge.appendChild(document.createTextNode(" Disconnected"));
+    badge.className = "status-pill status-disconnected";
+    const label = badge.querySelector(".status-label");
+    if (label) label.textContent = "Disconnected";
     console.log("[WS] Disconnected, reconnecting in " + (wsReconnectDelay / 1000) + "s...");
     setTimeout(connectWebSocket, wsReconnectDelay);
     wsReconnectDelay = Math.min(wsReconnectDelay * 2, WS_MAX_RECONNECT_DELAY);

@@ -4,150 +4,228 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>AI Code Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 </head>
 <body>
+  <!-- Ambient background -->
+  <div class="bg-grain"></div>
+  <div class="bg-glow bg-glow--tl"></div>
+  <div class="bg-glow bg-glow--br"></div>
+
   <!-- Header -->
   <header class="header">
     <div class="header-left">
-      <h1 class="logo">
-        <span class="logo-icon">&#9672;</span>
-        AI Code Monitor
-      </h1>
+      <div class="logo">
+        <div class="logo-mark">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+            <rect x="2" y="2" width="24" height="24" rx="6" stroke="currentColor" stroke-width="1.5" opacity="0.3"/>
+            <rect x="6" y="6" width="16" height="16" rx="3" stroke="currentColor" stroke-width="1.5"/>
+            <circle cx="14" cy="14" r="3" fill="currentColor"/>
+            <line x1="14" y1="2" x2="14" y2="6" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
+            <line x1="14" y1="22" x2="14" y2="26" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
+            <line x1="2" y1="14" x2="6" y2="14" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
+            <line x1="22" y1="14" x2="26" y2="14" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
+          </svg>
+        </div>
+        <div class="logo-text">
+          <span class="logo-name">ai-code-monitor</span>
+          <span class="logo-tag">MISSION CONTROL</span>
+        </div>
+      </div>
     </div>
     <div class="header-right">
-      <span id="connectionStatus" class="status-badge status-disconnected">
-        <span class="status-dot"></span> Disconnected
-      </span>
-      <span id="connectedServices" class="services-badge" title="Connected services"></span>
-      <span id="uptime" class="uptime">--:--:--</span>
+      <div id="connectionStatus" class="status-pill status-disconnected">
+        <span class="status-dot"></span>
+        <span class="status-label">Disconnected</span>
+      </div>
+      <div class="header-meta">
+        <span id="connectedServices" class="meta-services" title="Connected services"></span>
+        <span class="meta-sep">|</span>
+        <span id="uptime" class="meta-uptime">00:00:00</span>
+      </div>
     </div>
   </header>
 
-  <!-- Summary Cards -->
-  <section class="summary-cards">
-    <div class="card">
-      <div class="card-label">TOKENS IN</div>
-      <div class="card-value" id="tokensIn">0</div>
-      <div class="card-sub" id="tokensInSub">--</div>
-    </div>
-    <div class="card">
-      <div class="card-label">TOKENS OUT</div>
-      <div class="card-value" id="tokensOut">0</div>
-      <div class="card-sub" id="tokensOutSub">--</div>
-    </div>
-    <div class="card accent">
-      <div class="card-label">TOTAL COST</div>
-      <div class="card-value" id="totalCost">$0.00</div>
-      <div class="card-sub" id="costSub">--</div>
-    </div>
-    <div class="card">
-      <div class="card-label">REQUESTS</div>
-      <div class="card-value" id="totalRequests">0</div>
-      <div class="card-sub" id="requestsSub">--</div>
-    </div>
-    <div class="card">
-      <div class="card-label">ERRORS</div>
-      <div class="card-value" id="totalErrors">0</div>
-      <div class="card-sub" id="errorRate">0%</div>
-    </div>
-    <div class="card">
-      <div class="card-label">AVG LATENCY</div>
-      <div class="card-value" id="avgLatency">--</div>
-      <div class="card-sub" id="p99Latency">p99: --</div>
-    </div>
-    <div class="card">
-      <div class="card-label">LINES CHANGED</div>
-      <div class="card-value" id="linesChanged">0</div>
-      <div class="card-sub" id="linesSub">+0 / -0</div>
-    </div>
-  </section>
-
-  <!-- Charts Row -->
-  <section class="charts-row">
-    <div class="chart-container">
-      <h3>Token Usage Over Time</h3>
-      <canvas id="tokenChart"></canvas>
-    </div>
-    <div class="chart-container">
-      <h3>Cost Over Time</h3>
-      <canvas id="costChart"></canvas>
-    </div>
-  </section>
-
-  <!-- Breakdown Row -->
-  <section class="breakdown-row">
-    <div class="chart-container">
-      <h3>Requests by Model</h3>
-      <canvas id="modelChart"></canvas>
-      <div id="modelLegend" class="custom-legend"></div>
-    </div>
-    <div class="chart-container">
-      <h3>Requests by Tool</h3>
-      <canvas id="toolChart"></canvas>
-      <div id="toolLegend" class="custom-legend"></div>
-    </div>
-  </section>
-
-  <!-- Service Breakdown -->
-  <section class="service-breakdown">
-    <div class="service-header">
-      <h3>Activity by Service</h3>
-    </div>
-    <div id="serviceCards" class="service-cards">
-      <div class="empty-services">No services connected yet.</div>
-    </div>
-  </section>
-
-  <!-- Live Feed -->
-  <section class="live-feed">
-    <div class="feed-header">
-      <h3>Live Request Feed</h3>
-      <span id="feedCount" class="feed-count">0 events</span>
-    </div>
-    <div class="feed-table-wrapper">
-      <table class="feed-table">
-        <thead>
-          <tr>
-            <th>Time</th>
-            <th>Source</th>
-            <th>Model</th>
-            <th>Provider</th>
-            <th>Tool</th>
-            <th>Tokens In</th>
-            <th>Tokens Out</th>
-            <th>Cost</th>
-            <th>Latency</th>
-          </tr>
-        </thead>
-        <tbody id="feedBody">
-          <tr class="empty-row">
-            <td colspan="9">Waiting for data... Configure your AI CLI to send telemetry here.</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-  </section>
-
-  <!-- Logs Panel -->
-  <section class="logs-panel">
-    <div class="logs-header" id="logsToggle">
-      <h3>Logs</h3>
-      <span class="toggle-icon" id="logsToggleIcon">&#9662;</span>
-    </div>
-    <div class="logs-body" id="logsBody" style="display:none;">
-      <div id="logsContent" class="logs-content">
-        <div class="empty-logs">No logs received yet.</div>
+  <main class="main">
+    <!-- Hero metric: Total Cost -->
+    <section class="hero-row">
+      <div class="hero-card">
+        <div class="hero-inner">
+          <div class="hero-label">TOTAL COST</div>
+          <div class="hero-value" id="totalCost">$0.00</div>
+          <div class="hero-sub" id="costSub">--</div>
+        </div>
+        <div class="hero-ring">
+          <svg viewBox="0 0 120 120">
+            <circle cx="60" cy="60" r="54" stroke="rgba(0,245,196,0.08)" stroke-width="6" fill="none"/>
+            <circle cx="60" cy="60" r="54" stroke="url(#heroGrad)" stroke-width="6" fill="none"
+              stroke-dasharray="339.29" stroke-dashoffset="200" stroke-linecap="round"
+              id="heroRing" style="transition: stroke-dashoffset 1s ease"/>
+          </svg>
+          <defs>
+            <linearGradient id="heroGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stop-color="#00F5C4"/>
+              <stop offset="100%" stop-color="#00B4D8"/>
+            </linearGradient>
+          </defs>
+        </div>
       </div>
-    </div>
-  </section>
+
+      <!-- Metric strip -->
+      <div class="metric-strip">
+        <div class="metric-tile">
+          <div class="metric-icon">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 16L2 5L6 5L6 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 16V2L11 2V16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 16V8L16 8V16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="metric-data">
+            <div class="metric-val" id="tokensIn">0</div>
+            <div class="metric-lbl">Tokens In</div>
+          </div>
+        </div>
+        <div class="metric-tile">
+          <div class="metric-icon icon--out">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 16L2 5L6 5L6 16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M7 16V2L11 2V16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 16V8L16 8V16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="metric-data">
+            <div class="metric-val" id="tokensOut">0</div>
+            <div class="metric-lbl">Tokens Out</div>
+          </div>
+        </div>
+        <div class="metric-tile">
+          <div class="metric-icon icon--req">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M9 5V9L12 11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          </div>
+          <div class="metric-data">
+            <div class="metric-val" id="totalRequests">0</div>
+            <div class="metric-lbl">Requests</div>
+          </div>
+        </div>
+        <div class="metric-tile">
+          <div class="metric-icon icon--err">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2L16 15H2L9 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 7V10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="12.5" r="0.75" fill="currentColor"/></svg>
+          </div>
+          <div class="metric-data">
+            <div class="metric-val" id="totalErrors">0</div>
+            <div class="metric-lbl">Errors <span class="metric-sub" id="errorRate">0%</span></div>
+          </div>
+        </div>
+        <div class="metric-tile">
+          <div class="metric-icon icon--lat">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M1 9H4L6 3L9 15L12 6L14 9H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="metric-data">
+            <div class="metric-val" id="avgLatency">--</div>
+            <div class="metric-lbl">Avg Latency <span class="metric-sub" id="p99Latency">p99: --</span></div>
+          </div>
+        </div>
+        <div class="metric-tile">
+          <div class="metric-icon icon--loc">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M5 3V15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M9 3V15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.5"/><path d="M13 3V15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M3 7H15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3"/><path d="M3 11H15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3"/></svg>
+          </div>
+          <div class="metric-data">
+            <div class="metric-val" id="linesChanged">0</div>
+            <div class="metric-lbl">Lines <span class="metric-sub" id="linesSub">+0 / -0</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Charts Bento Grid -->
+    <section class="bento-grid">
+      <div class="bento-cell bento--wide glass-panel">
+        <div class="panel-head">
+          <h3>Token Usage</h3>
+          <span class="panel-badge">LIVE</span>
+        </div>
+        <div class="chart-wrap"><canvas id="tokenChart"></canvas></div>
+      </div>
+      <div class="bento-cell glass-panel">
+        <div class="panel-head">
+          <h3>Cost Over Time</h3>
+        </div>
+        <div class="chart-wrap"><canvas id="costChart"></canvas></div>
+      </div>
+      <div class="bento-cell glass-panel">
+        <div class="panel-head">
+          <h3>Models</h3>
+        </div>
+        <div class="chart-wrap chart-wrap--donut"><canvas id="modelChart"></canvas></div>
+        <div id="modelLegend" class="custom-legend"></div>
+      </div>
+      <div class="bento-cell glass-panel">
+        <div class="panel-head">
+          <h3>Tools</h3>
+        </div>
+        <div class="chart-wrap chart-wrap--donut"><canvas id="toolChart"></canvas></div>
+        <div id="toolLegend" class="custom-legend"></div>
+      </div>
+    </section>
+
+    <!-- Service Breakdown -->
+    <section class="glass-panel section-panel">
+      <div class="panel-head">
+        <h3>Connected Services</h3>
+      </div>
+      <div id="serviceCards" class="service-cards">
+        <div class="empty-state">No services connected yet. Start an AI coding agent with telemetry enabled.</div>
+      </div>
+    </section>
+
+    <!-- Live Feed -->
+    <section class="glass-panel section-panel">
+      <div class="panel-head">
+        <h3>Live Request Feed</h3>
+        <span id="feedCount" class="panel-counter">0 events</span>
+      </div>
+      <div class="feed-table-wrapper">
+        <table class="feed-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Source</th>
+              <th>Model</th>
+              <th>Provider</th>
+              <th>Tool</th>
+              <th>Tokens In</th>
+              <th>Tokens Out</th>
+              <th>Cost</th>
+              <th>Latency</th>
+            </tr>
+          </thead>
+          <tbody id="feedBody">
+            <tr class="empty-row">
+              <td colspan="9">Waiting for data... Configure your AI CLI to send telemetry here.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Logs Panel -->
+    <section class="glass-panel section-panel logs-section">
+      <div class="panel-head panel-head--toggle" id="logsToggle">
+        <h3>Logs</h3>
+        <span class="toggle-arrow" id="logsToggleIcon">&#9662;</span>
+      </div>
+      <div class="logs-body" id="logsBody" style="display:none;">
+        <div id="logsContent" class="logs-content">
+          <div class="empty-state">No logs received yet.</div>
+        </div>
+      </div>
+    </section>
+  </main>
 
   <!-- Footer -->
   <footer class="footer">
-    <span>ai-code-monitor v1.0.0</span>
-    <span>OTLP Receiver: <code id="otlpEndpoint">http://localhost:4318</code></span>
-    <a href="https://github.com/bhaveshkumarparmar/ai-code-monitor" target="_blank">GitHub</a>
+    <span class="footer-brand">ai-code-monitor <span class="footer-ver">v1.6.1</span></span>
+    <span class="footer-sep"></span>
+    <span>OTLP: <code id="otlpEndpoint">localhost:4318</code></span>
+    <span class="footer-sep"></span>
+    <a href="https://github.com/bhaveshopss/ai-code-monitor" target="_blank" rel="noopener">GitHub</a>
   </footer>
 
   <script src="/js/app.js"></script>
