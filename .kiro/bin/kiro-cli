@@ -13,6 +13,7 @@ const kiro = spawn('/usr/bin/kiro-cli', process.argv.slice(2), {
 
 kiro.on('close', (code) => {
   const duration = Date.now() - startTime;
+  const now = Date.now();
   
   // Send telemetry with recognized metric names
   const telemetry = {
@@ -34,7 +35,7 @@ kiro.on('close', (code) => {
                   { key: 'success', value: { boolValue: code === 0 } }
                 ],
                 asInt: 1,
-                timeUnixNano: String(Date.now() * 1000000)
+                timeUnixNano: String(now * 1000000)
               }]
             }
           },
@@ -48,7 +49,20 @@ kiro.on('close', (code) => {
                 ],
                 count: 1,
                 sum: duration,
-                timeUnixNano: String(Date.now() * 1000000)
+                timeUnixNano: String(now * 1000000)
+              }]
+            }
+          },
+          {
+            name: 'llm.request.count',
+            sum: {
+              dataPoints: [{
+                attributes: [
+                  { key: 'tool', value: { stringValue: 'kiro-cli' } },
+                  { key: 'success', value: { boolValue: code === 0 } }
+                ],
+                asInt: 1,
+                timeUnixNano: String(now * 1000000)
               }]
             }
           }
